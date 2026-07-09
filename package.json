@@ -1,7 +1,7 @@
 {
-  "name": "@deepaksilaych/sess",
+  "name": "sess-sh",
   "version": "0.4.3",
-  "description": "dtach sessions with overlay isolation — one tool, no worktrees, no containers, no tmux. Persistent terminal sessions with OverlayFS filesystem isolation on Linux, APFS clones on macOS, SSH remote support, and auto-reconnect on wake.",
+  "description": "dtach sessions with overlay isolation — one tool, no worktrees, no containers, no tmux",
   "keywords": [
     "dtach",
     "overlayfs",
