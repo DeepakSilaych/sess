@@ -6,7 +6,7 @@
 # Auto-reconnect: sess up reconnects to previously active sessions.
 set -euo pipefail
 
-VERSION="0.4.0"
+VERSION="0.4.3"
 PROG="$(basename "$0")"
 SESS_DIR="${SESS_DIR:-$HOME/.sess}"
 

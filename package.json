@@ -1,7 +1,7 @@
 {
-  "name": "sess-cli",
-  "version": "0.4.0",
-  "description": "dtach sessions with overlay isolation — one tool, no worktrees, no containers, no tmux",
+  "name": "@deepaksilaych/sess",
+  "version": "0.4.3",
+  "description": "dtach sessions with overlay isolation — one tool, no worktrees, no containers, no tmux. Persistent terminal sessions with OverlayFS filesystem isolation on Linux, APFS clones on macOS, SSH remote support, and auto-reconnect on wake.",
   "keywords": [
     "dtach",
     "overlayfs",
@@ -14,7 +14,10 @@
     "terminal",
     "development",
     "devtools",
-    "cli"
+    "cli",
+    "remote",
+    "reconnect",
+    "wake"
   ],
   "homepage": "https://github.com/deepaksilaych/sess#readme",
   "bugs": {
@@ -27,10 +30,11 @@
   "license": "MIT",
   "author": "Deepak Silaych",
   "bin": {
-    "sess": "./bin/sess"
+    "sess": "bin/sess-cli.js"
   },
   "files": [
     "bin/sess",
+    "bin/sess-cli.js",
     "etc/bash-completion/sess",
     "etc/zsh-completion/_sess",
     "etc/wakeup",
@@ -41,9 +45,6 @@
     "darwin",
     "linux"
   ],
-  "engines": {
-    "node": ">=14"
-  },
   "dependencies": {},
   "devDependencies": {}
 }
