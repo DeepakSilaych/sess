@@ -13,6 +13,7 @@
     --accent: #58a6ff;
     --border: #30363d;
     --code-bg: #161b22;
+    --max-w: 720px;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
@@ -26,42 +27,112 @@
   a { color: var(--accent); text-decoration: none; }
   a:hover { text-decoration: underline; }
 
-  main {
-    max-width: 720px;
+  /* ── Nav ─────────────────────────────────────────── */
+  nav {
+    border-bottom: 1px solid var(--border);
+    padding: 0 24px;
+    position: sticky;
+    top: 0;
+    background: var(--bg);
+    z-index: 10;
+  }
+  nav .inner {
+    max-width: var(--max-w);
     margin: 0 auto;
-    padding: 80px 24px 48px;
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    height: 56px;
+  }
+  nav .logo {
+    font-weight: 700;
+    font-size: 18px;
+    color: var(--text);
+    margin-right: auto;
+  }
+  nav .logo:hover { text-decoration: none; }
+  nav a {
+    font-size: 14px;
+    color: var(--muted);
+    padding: 4px 0;
+    border-bottom: 2px solid transparent;
+    transition: all 0.15s;
+  }
+  nav a:hover { color: var(--text); text-decoration: none; }
+  nav a.active { color: var(--text); border-bottom-color: var(--accent); }
+
+  /* ── Main ────────────────────────────────────────── */
+  main {
+    max-width: var(--max-w);
+    margin: 0 auto;
+    padding: 48px 24px 80px;
   }
 
-  .logo {
-    font-size: 48px;
-    font-weight: 700;
-    letter-spacing: -0.03em;
+  .page { display: none; }
+  .page.active { display: block; }
+
+  /* ── Typography ──────────────────────────────────── */
+  h1 {
+    font-size: 32px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
     margin-bottom: 8px;
   }
-  .logo .slash { color: var(--muted); font-weight: 300; }
-
-  .tagline {
+  h2 {
     font-size: 20px;
-    color: var(--muted);
-    margin-bottom: 40px;
-    line-height: 1.5;
+    font-weight: 600;
+    margin: 40px 0 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
   }
+  h2:first-of-type { margin-top: 0; }
+  h3 {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 24px 0 8px;
+  }
+  p { margin-bottom: 12px; color: var(--muted); }
+  p strong { color: var(--text); }
 
-  .install {
+  /* ── Code ────────────────────────────────────────── */
+  pre {
     background: var(--code-bg);
     border: 1px solid var(--border);
     border-radius: 6px;
     padding: 16px 20px;
     font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    font-size: 13px;
+    line-height: 1.7;
+    overflow-x: auto;
+    margin: 12px 0 20px;
+  }
+  pre .c { color: var(--muted); }
+  pre .k { color: var(--accent); }
+  code {
+    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    font-size: 13px;
+    background: var(--code-bg);
+    padding: 2px 6px;
+    border-radius: 3px;
+  }
+  pre code { background: none; padding: 0; }
+
+  /* ── Install bar ─────────────────────────────────── */
+  .install-bar {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 16px;
+    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
     font-size: 14px;
-    margin-bottom: 12px;
+    margin: 16px 0 8px;
     display: flex;
     align-items: center;
     gap: 12px;
   }
-  .install .prompt { color: var(--muted); }
-  .install .cmd { color: var(--text); flex: 1; }
-  .install .copy {
+  .install-bar .prompt { color: var(--muted); }
+  .install-bar .cmd { color: var(--text); flex: 1; }
+  .install-bar .copy {
     color: var(--muted);
     cursor: pointer;
     font-size: 12px;
@@ -72,63 +143,41 @@
     font-family: inherit;
     transition: all 0.15s;
   }
-  .install .copy:hover { color: var(--accent); border-color: var(--accent); }
+  .install-bar .copy:hover { color: var(--accent); border-color: var(--accent); }
 
-  .alt {
+  .alt-install {
     font-size: 13px;
     color: var(--muted);
-    margin-bottom: 48px;
-  }
-  .alt code { color: var(--text); background: var(--code-bg); padding: 2px 6px; border-radius: 3px; font-size: 12px; }
-
-  hr {
-    border: none;
-    border-top: 1px solid var(--border);
-    margin: 48px 0;
+    margin-bottom: 32px;
   }
 
-  h2 {
-    font-size: 20px;
-    font-weight: 600;
-    margin-bottom: 16px;
-  }
+  /* ── Lists ───────────────────────────────────────── */
+  ul { margin: 8px 0 16px 20px; color: var(--muted); }
+  li { margin-bottom: 4px; }
 
-  .grid {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 24px;
-    margin-bottom: 48px;
-  }
-  .grid h3 {
-    font-size: 15px;
-    font-weight: 600;
-    margin-bottom: 6px;
-  }
-  .grid p {
+  /* ── Table ───────────────────────────────────────── */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0 20px;
     font-size: 14px;
+  }
+  th, td {
+    padding: 10px 14px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+  th {
     color: var(--muted);
-    line-height: 1.6;
-  }
-
-  .commands {
-    background: var(--code-bg);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 20px 24px;
-    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    font-weight: 600;
     font-size: 13px;
-    line-height: 2;
-    overflow-x: auto;
   }
-  .commands .c { color: var(--muted); }
-  .commands .k { color: var(--accent); }
+  td:first-child { color: var(--text); font-weight: 500; }
+  .yes { color: #3fb950; }
+  .no  { color: var(--muted); }
+  .partial { color: #d2991d; }
 
-  .links {
-    display: flex;
-    gap: 24px;
-    font-size: 14px;
-  }
-
+  /* ── Footer ──────────────────────────────────────── */
   footer {
     text-align: center;
     padding: 32px 24px;
@@ -136,99 +185,335 @@
     font-size: 13px;
     border-top: 1px solid var(--border);
   }
+  footer a { color: var(--muted); }
 
   @media (max-width: 600px) {
-    .grid { grid-template-columns: 1fr; }
-    .logo { font-size: 36px; }
+    nav .inner { gap: 14px; }
+    nav a { font-size: 13px; }
+    h1 { font-size: 26px; }
   }
 </style>
 </head>
 <body>
 
-<main>
-  <div class="logo">sess<span class="slash">/</span></div>
-  <p class="tagline">
-    dtach sessions with overlay isolation.<br>
-    One tool. No worktrees. No containers. No tmux.
-  </p>
+<nav>
+  <div class="inner">
+    <a href="#" class="logo" onclick="showPage('home')">sess</a>
+    <a href="#" onclick="showPage('home')" class="active" data-page="home">Home</a>
+    <a href="#" onclick="showPage('commands')" data-page="commands">Commands</a>
+    <a href="#" onclick="showPage('overlays')" data-page="overlays">Overlays</a>
+    <a href="#" onclick="showPage('remote')" data-page="remote">Remote</a>
+    <a href="#" onclick="showPage('connections')" data-page="connections">Connections</a>
+  </div>
+</nav>
 
-  <div class="install" onclick="copyCmd(this)">
+<main>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<!-- HOME                                               -->
+<!-- ═══════════════════════════════════════════════════ -->
+<div class="page active" id="home">
+  <h1>sess</h1>
+  <p>dtach sessions with overlay isolation.<br>One tool. No worktrees. No containers. No tmux.</p>
+
+  <div class="install-bar" onclick="copyCmd(this)">
     <span class="prompt">$</span>
     <span class="cmd">npx @deepaksilaych/sess</span>
     <button class="copy">copy</button>
   </div>
-  <p class="alt">
+  <p class="alt-install">
     or <code>npm install -g @deepaksilaych/sess</code> &nbsp;·&nbsp;
     <a href="https://github.com/DeepakSilaych/sess">source</a>
   </p>
 
-  <div class="grid">
-    <div>
-      <h3>dtach persistence</h3>
-      <p>Single Unix socket per session. Ctrl+\ to detach. Sessions survive SSH drops and laptop sleep.</p>
-    </div>
-    <div>
-      <h3>OverlayFS isolation</h3>
-      <p>N independent writable views of the same repo. Only deltas stored. Linux kernel-native.</p>
-    </div>
-    <div>
-      <h3>APFS clones on macOS</h3>
-      <p>Same command, different kernel primitive. Copy-on-write clones — instant, isolated.</p>
-    </div>
-    <div>
-      <h3>Connection log</h3>
-      <p>Every session end classified: detach, exit, or drop. Know what happened while you were away.</p>
-    </div>
-    <div>
-      <h3>Remote sessions</h3>
-      <p>sess remote add once. Then sess new, sess &lt;name&gt;, sess ssh all go through SSH automatically.</p>
-    </div>
-    <div>
-      <h3>Auto-reconnect on wake</h3>
-      <p>sess up reconnects to all previously active sessions. SleepWatcher triggers it on macOS wake.</p>
-    </div>
-  </div>
+  <h2>What is sess?</h2>
+  <p>sess gives you <strong>persistent terminal sessions</strong> with <strong>filesystem isolation</strong>. Create a session, work inside it, detach with <code>Ctrl+\</code>. The session survives SSH drops, laptop sleep, and network failures. Reattach anytime with <code>sess &lt;name&gt;</code>.</p>
+  <p>On Linux, each session gets an <strong>OverlayFS mount</strong> — an independent writable view of your repo. Changes in one session never leak to another. On macOS, APFS copy-on-write clones provide the same isolation.</p>
 
-  <hr>
-
-  <h2>Commands</h2>
-  <div class="commands">
-<span class="k">sess</span> <span class="c">new</span> feature-auth          <span class="c"># create + auto-attach</span>
-<span class="k">sess</span> feature-auth                 <span class="c"># reattach (Ctrl+\ to detach)</span>
-<span class="k">sess</span> <span class="c">ls</span>                          <span class="c"># list sessions</span>
-<span class="k">sess</span> <span class="c">rm</span> feature-auth              <span class="c"># destroy session + overlays</span>
+  <h2>Quick start</h2>
+  <pre><span class="k">sess</span> <span class="c">new</span> feature-auth          <span class="c"># create session + auto-attach</span>
+<span class="c"># ... work inside the session ...</span>
+Ctrl+\                            <span class="c"># detach (session persists)</span>
+<span class="k">sess</span> feature-auth                 <span class="c"># reattach</span>
 
 <span class="k">sess</span> <span class="c">overlay new</span> feature-auth bugfix main
 <span class="k">sess</span> <span class="c">overlay switch</span> feature-auth bugfix
-<span class="k">sess</span> <span class="c">overlay ls</span> feature-auth
-<span class="k">sess</span> <span class="c">overlay rm</span> feature-auth bugfix
+<span class="c"># ... work on bugfix in isolated overlay ...</span>
+Ctrl+\
 
-<span class="k">sess</span> <span class="c">diff</span> feature-auth           <span class="c"># git diff in overlay</span>
-<span class="k">sess</span> <span class="c">log</span> feature-auth            <span class="c"># activity log</span>
-<span class="k">sess</span> <span class="c">connections</span> feature-auth     <span class="c"># detach/exit/drop log</span>
-<span class="k">sess</span> <span class="c">path</span> feature-auth            <span class="c"># print overlay path</span>
-<span class="k">sess</span> <span class="c">code</span> feature-auth            <span class="c"># open Cursor / VS Code</span>
+<span class="k">sess</span> <span class="c">rm</span> feature-auth              <span class="c"># destroy session + overlays</span></pre>
 
-<span class="k">sess</span> <span class="c">ssh</span>                         <span class="c"># SSH to configured VM</span>
-<span class="k">sess</span> <span class="c">up</span>                          <span class="c"># reconnect all active sessions</span>
-<span class="k">sess</span> <span class="c">remote add</span> default user@dev-vm
-<span class="k">sess</span> <span class="c">doctor</span>                      <span class="c"># check prerequisites</span>
-  </div>
+  <h2>Why not tmux / worktrees / Docker?</h2>
+  <table>
+    <tr><th></th><th>sess</th><th>git worktree</th><th>tmux</th><th>Docker</th></tr>
+    <tr><td>Filesystem isolation</td><td class="yes">per-overlay</td><td class="partial">branch-level</td><td class="no">shared FS</td><td class="yes">full</td></tr>
+    <tr><td>Creation time</td><td class="yes">instant</td><td class="partial">~1s</td><td class="yes">instant</td><td class="partial">seconds</td></tr>
+    <tr><td>Disk per session</td><td class="yes">deltas only</td><td class="partial">full copy</td><td class="yes">0</td><td class="no">full copy</td></tr>
+    <tr><td>SSH persistence</td><td class="yes">dtach</td><td class="no">manual</td><td class="yes">yes</td><td class="partial">manual</td></tr>
+    <tr><td>Extra process</td><td class="yes">none</td><td class="yes">none</td><td class="no">server</td><td class="no">daemon</td></tr>
+    <tr><td>Connection log</td><td class="yes">detach/exit/drop</td><td class="no">no</td><td class="no">no</td><td class="no">no</td></tr>
+  </table>
 
-  <hr>
+  <h2>Platforms</h2>
+  <ul>
+    <li><strong>Linux</strong> — OverlayFS mounts, instant writable overlays, delta-only disk</li>
+    <li><strong>macOS</strong> — APFS copy-on-write clones, dtach sessions, SleepWatcher auto-reconnect</li>
+    <li><strong>Remote (SSH)</strong> — sessions live on VM, laptop is just a terminal</li>
+  </ul>
 
-  <div class="links">
-    <a href="https://github.com/DeepakSilaych/sess">GitHub</a>
-    <a href="https://www.npmjs.com/package/@deepaksilaych/sess">npm</a>
+  <h2>Prerequisites</h2>
+  <ul>
+    <li><strong>dtach</strong> — session persistence (<code>apt install dtach</code> / <code>brew install dtach</code>)</li>
+    <li><strong>git</strong> — version control</li>
+    <li><strong>bash</strong> — shell</li>
+    <li><strong>OverlayFS</strong> — filesystem isolation (Linux only, standard on modern kernels)</li>
+  </ul>
+
+  <h2>Links</h2>
+  <p>
+    <a href="https://github.com/DeepakSilaych/sess">GitHub</a> &nbsp;·&nbsp;
+    <a href="https://www.npmjs.com/package/@deepaksilaych/sess">npm</a> &nbsp;·&nbsp;
     <a href="https://github.com/DeepakSilaych/sess/issues">Issues</a>
-  </div>
+  </p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<!-- COMMANDS                                           -->
+<!-- ═══════════════════════════════════════════════════ -->
+<div class="page" id="commands">
+  <h1>Commands</h1>
+  <p>Every command in sess. All commands work locally and over SSH when a remote is configured.</p>
+
+  <h2>Sessions</h2>
+  <pre><span class="k">sess</span> <span class="c">new</span> &lt;name&gt; [branch]        <span class="c"># create session + auto-attach</span>
+<span class="k">sess</span> &lt;name&gt;                     <span class="c"># attach to existing session</span>
+                                <span class="c"># Ctrl+\ to detach</span>
+<span class="k">sess</span> <span class="c">ls</span>                          <span class="c"># list all sessions</span>
+<span class="k">sess</span> <span class="c">rm</span> &lt;name&gt;                    <span class="c"># destroy session (unmounts overlays)</span>
+<span class="k">sess</span> <span class="c">status</span> [name]                <span class="c"># session info or overall status</span>
+<span class="k">sess</span> <span class="c">path</span> &lt;name&gt;                   <span class="c"># print overlay/cwd path (for scripts)</span></pre>
+
+  <h2>Overlays</h2>
+  <pre><span class="k">sess</span> <span class="c">overlay new</span> &lt;session&gt; &lt;name&gt; [branch]
+<span class="k">sess</span> <span class="c">overlay switch</span> &lt;session&gt; &lt;name&gt;
+<span class="k">sess</span> <span class="c">overlay ls</span> &lt;session&gt;
+<span class="k">sess</span> <span class="c">overlay rm</span> &lt;session&gt; &lt;name&gt;</pre>
+
+  <h2>Inspection</h2>
+  <pre><span class="k">sess</span> <span class="c">diff</span> &lt;name&gt; [path]           <span class="c"># git diff in session's overlay</span>
+<span class="k">sess</span> <span class="c">log</span> &lt;name&gt; [N]               <span class="c"># activity log (default: last 20)</span>
+<span class="k">sess</span> <span class="c">connections</span> &lt;name&gt; [N]        <span class="c"># connection log (detach/exit/drop)</span></pre>
+
+  <h2>Remote</h2>
+  <pre><span class="k">sess</span> <span class="c">remote add</span> [name] &lt;user@host&gt;  <span class="c"># configure a remote VM</span>
+<span class="k">sess</span> <span class="c">remote ls</span>                      <span class="c"># list configured remotes</span>
+<span class="k">sess</span> <span class="c">remote rm</span> [name]                <span class="c"># remove a remote</span>
+<span class="k">sess</span> <span class="c">ssh</span> [args]                     <span class="c"># SSH to configured VM</span>
+<span class="k">sess</span> <span class="c">up</span>                            <span class="c"># reconnect all previously active sessions</span></pre>
+
+  <h2>Editor</h2>
+  <pre><span class="k">sess</span> <span class="c">code</span> &lt;name&gt;                   <span class="c"># open Cursor / VS Code for session</span>
+                                <span class="c"># prefers cursor, falls back to code</span>
+                                <span class="c"># override: SESS_EDITOR=code sess code &lt;name&gt;</span></pre>
+
+  <h2>Utility</h2>
+  <pre><span class="k">sess</span> <span class="c">doctor</span>                        <span class="c"># check prerequisites</span>
+<span class="k">sess</span> <span class="c">help</span>                          <span class="c"># show help</span>
+<span class="k">sess</span> <span class="c">version</span>                        <span class="c"># show version</span></pre>
+
+  <h2>Environment</h2>
+  <pre><span class="c">SESS_DIR</span>       <span class="c"># state directory (default: ~/.sess)</span>
+<span class="c">SESS_SESSION</span>    <span class="c"># set inside sessions (session name)</span>
+<span class="c">SESS_BRANCH</span>     <span class="c"># set inside sessions (branch)</span>
+<span class="c">SESS_OVERLAY</span>    <span class="c"># set inside sessions (current overlay name)</span>
+<span class="c">SESS_EDITOR</span>     <span class="c"># override editor for sess code (default: cursor or code)</span></pre>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<!-- OVERLAYS                                           -->
+<!-- ═══════════════════════════════════════════════════ -->
+<div class="page" id="overlays">
+  <h1>Overlays</h1>
+  <p>Overlays give each session an <strong>independent writable view</strong> of your repository. Changes in one overlay never affect the original repo or other overlays.</p>
+
+  <h2>How it works</h2>
+  <p>On <strong>Linux</strong>, sess uses <strong>OverlayFS</strong> — a union filesystem built into the kernel. It stacks a writable layer on top of a read-only base:</p>
+  <ul>
+    <li><strong>Lower layer</strong> — the original repo (read-only, never modified)</li>
+    <li><strong>Upper layer</strong> — your changes (only deltas are stored)</li>
+    <li><strong>Merged view</strong> — what you see and work in (lower + upper combined)</li>
+  </ul>
+  <p>On <strong>macOS</strong>, sess uses <strong>APFS copy-on-write clones</strong> (<code>cp -cR</code>). Same experience — isolated writes, shared disk blocks for unchanged files.</p>
+
+  <h2>Creating an overlay</h2>
+  <pre><span class="k">sess</span> <span class="c">overlay new</span> feature-auth bugfix-1222 main</pre>
+  <p>This:</p>
+  <ol>
+    <li>Pulls the latest <code>main</code> branch from origin</li>
+    <li>Creates an OverlayFS mount (Linux) or APFS clone (macOS)</li>
+    <li>Checks out the specified branch inside the overlay</li>
+    <li>Updates the session state to point to the new overlay</li>
+  </ol>
+
+  <h2>Switching overlays</h2>
+  <pre><span class="k">sess</span> <span class="c">overlay switch</span> feature-auth bugfix-1222</pre>
+  <p>Switches the active overlay for the session. Detach and reattach to update your working directory.</p>
+
+  <h2>Listing overlays</h2>
+  <pre><span class="k">sess</span> <span class="c">overlay ls</span> feature-auth</pre>
+  <pre>bugfix-1222          main          mounted    &lt;- current
+feature-x            main          mounted</pre>
+
+  <h2>Removing an overlay</h2>
+  <pre><span class="k">sess</span> <span class="c">overlay rm</span> feature-auth bugfix-1222</pre>
+  <p>Unmounts the overlay (Linux) and removes the overlay directory. If this was the current overlay, the session resets to <code>none</code>.</p>
+
+  <h2>Isolation in practice</h2>
+  <pre><span class="c"># Create overlay and write to it</span>
+<span class="k">sess</span> <span class="c">overlay new</span> my-session ov1 main
+<span class="k">echo</span> <span class="c">"isolated change"</span> &gt;&gt; ~/.sess/sessions/my-session/overlays/ov1/merged/README.md
+
+<span class="c"># Original repo is untouched</span>
+<span class="k">cat</span> /path/to/repo/README.md
+<span class="c"># → "hello"  (no "isolated change")</span>
+
+<span class="c"># Diff shows overlay changes</span>
+<span class="k">sess</span> <span class="c">diff</span> my-session
+<span class="c"># → +isolated change</span></pre>
+
+  <h2>Directory structure</h2>
+  <pre>~/.sess/sessions/&lt;name&gt;/overlays/&lt;overlay&gt;/
+├── upper/      <span class="c"># writable layer (deltas only)</span>
+├── work/       <span class="c"># kernel work directory</span>
+└── merged/     <span class="c"># unified mount point (what you see)</span></pre>
+
+  <h2>Privilege requirements (Linux)</h2>
+  <p>OverlayFS mounts require <code>CAP_SYS_ADMIN</code>. Options:</p>
+  <ul>
+    <li><strong>sudo</strong> — sess uses <code>sudo mount</code> automatically</li>
+    <li><strong>setcap</strong> — <code>sudo setcap cap_sys_admin+ep $(which sess)</code></li>
+    <li><strong>User namespaces</strong> — if enabled on your kernel</li>
+  </ul>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<!-- REMOTE                                             -->
+<!-- ═══════════════════════════════════════════════════ -->
+<div class="page" id="remote">
+  <h1>Remote sessions</h1>
+  <p>Sessions live on a Linux VM. Your laptop is just a terminal. <code>sess</code> handles all SSH automatically.</p>
+
+  <h2>One-time setup</h2>
+  <pre><span class="k">sess</span> <span class="c">remote add</span> default user@dev-vm</pre>
+  <p>This stores the SSH host in <code>~/.sess/remote</code>. Key-based SSH auth is required — set it up first with <code>ssh-copy-id user@dev-vm</code>.</p>
+
+  <h2>Daily workflow</h2>
+  <pre><span class="c"># Create a session (happens on the VM)</span>
+<span class="k">sess</span> <span class="c">new</span> feature-auth
+
+<span class="c"># Reattach (SSHes to VM automatically)</span>
+<span class="k">sess</span> feature-auth
+
+<span class="c"># Just SSH to the VM (no session)</span>
+<span class="k">sess</span> <span class="c">ssh</span>
+
+<span class="c"># Open Cursor/VS Code via Remote-SSH</span>
+<span class="k">sess</span> <span class="c">code</span> feature-auth</pre>
+
+  <h2>Auto-reconnect on wake</h2>
+  <p>When you close your laptop, SSH drops but dtach sessions survive on the VM. When you open it:</p>
+  <pre><span class="k">sess</span> <span class="c">up</span></pre>
+  <p>This reconnects to all previously active sessions. On macOS, it opens a Terminal.app tab for each session.</p>
+
+  <h2>Fully automatic (macOS)</h2>
+  <p>Install SleepWatcher and add to <code>~/.wakeup</code>:</p>
+  <pre><span class="c">#!/bin/bash</span>
+<span class="c"># ~/.wakeup — called by SleepWatcher on wake</span>
+<span class="k">sleep</span> 3 && <span class="k">sess</span> <span class="c">up</span> &</pre>
+  <pre><span class="k">brew</span> <span class="c">install</span> sleepwatcher
+<span class="k">cp</span> ~/Projects/sess/etc/wakeup ~/.wakeup
+<span class="k">chmod</span> +x ~/.wakeup</pre>
+
+  <h2>How it works</h2>
+  <pre>macOS Laptop                    Linux VM
+┌──────────────────┐            ┌─────────────────────────┐
+│ sess remote add  │            │                         │
+│   default user@  │── SSH ──► │  sess feature-auth      │ ← dtach socket
+│   dev-vm          │            │  sess bugfix-1222      │ ← dtach socket
+│                  │            │                         │
+│ sess up (on wake)│── SSH ──► │  reconnects to both     │
+└──────────────────┘            └─────────────────────────┘</pre>
+
+  <h2>Managing remotes</h2>
+  <pre><span class="k">sess</span> <span class="c">remote ls</span>                    <span class="c"># list configured remotes</span>
+<span class="k">sess</span> <span class="c">remote rm</span> default             <span class="c"># remove a remote</span></pre>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<!-- CONNECTIONS                                        -->
+<!-- ═══════════════════════════════════════════════════ -->
+<div class="page" id="connections">
+  <h1>Connection log</h1>
+  <p>Every time a session ends, sess records <strong>how</strong> it ended. This tells you whether you intentionally detached or your connection dropped.</p>
+
+  <h2>Viewing the log</h2>
+  <pre><span class="k">sess</span> <span class="c">connections</span> feature-auth</pre>
+  <pre>2026-07-09T14:30:00+05:30  detach (Ctrl+\)
+2026-07-09T15:12:00+05:30  drop (exit code 141)
+2026-07-09T15:12:30+05:30  detach (Ctrl+\)
+2026-07-09T16:45:00+05:30  exit</pre>
+
+  <h2>Event types</h2>
+  <table>
+    <tr><th>Event</th><th>Meaning</th><th>How it happens</th></tr>
+    <tr><td><code>detach</code></td><td>You intentionally detached</td><td>Pressed <code>Ctrl+\</code></td></tr>
+    <tr><td><code>exit</code></td><td>You intentionally exited</td><td>Typed <code>exit</code> or Ctrl-D in the shell</td></tr>
+    <tr><td><code>drop</code></td><td>Unintentional disconnect</td><td>SSH timeout, network failure, laptop sleep</td></tr>
+  </table>
+
+  <h2>How detection works</h2>
+  <p>sess checks dtach's exit code after the session ends:</p>
+  <ul>
+    <li><strong>Exit code 0</strong> — the shell exited cleanly → <code>exit</code></li>
+    <li><strong>Exit code 1</strong> — dtach received the detach signal → <code>detach</code></li>
+    <li><strong>Anything else</strong> — abnormal termination → <code>drop</code></li>
+  </ul>
+
+  <h2>Log location</h2>
+  <pre>~/.sess/sessions/&lt;name&gt;/connections</pre>
+  <p>One entry per session end. Timestamped in ISO 8601. Plain text, append-only.</p>
+
+  <h2>Activity log</h2>
+  <p>Separate from the connection log, the activity log records all session events:</p>
+  <pre><span class="k">sess</span> <span class="c">log</span> feature-auth</pre>
+  <pre>2026-07-09T11:19:57+00:00  created (branch: master)
+2026-07-09T11:19:57+00:00  attached
+2026-07-09T11:19:57+00:00  detached (Ctrl+\)
+2026-07-09T11:21:00+00:00  attached
+2026-07-09T11:22:00+00:00  overlay new: bugfix-1222 (branch: main)
+2026-07-09T11:23:00+00:00  overlay switch: bugfix-1222
+2026-07-09T11:25:00+00:00  diff
+2026-07-09T11:30:00+00:00  connection dropped (exit code 141)</pre>
+  <p>Stored at <code>~/.sess/sessions/&lt;name&gt;/log</code>.</p>
+</div>
+
 </main>
 
 <footer>
-  MIT · sess v0.4.3 · dtach + OverlayFS + APFS
+  sess v0.4.3 · MIT · <a href="https://github.com/DeepakSilaych/sess">GitHub</a> · <a href="https://www.npmjs.com/package/@deepaksilaych/sess">npm</a>
 </footer>
 
 <script>
+function showPage(name) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.getElementById(name).classList.add('active');
+  document.querySelectorAll('nav a[data-page]').forEach(a => {
+    a.classList.toggle('active', a.dataset.page === name);
+  });
+  window.scrollTo(0, 0);
+  return false;
+}
+
 function copyCmd(el) {
   const cmd = el.querySelector('.cmd').textContent;
   navigator.clipboard.writeText(cmd).then(() => {
