@@ -349,7 +349,6 @@
       <a href="#commands">Commands</a>
       <a href="#compare">Compare</a>
       <a href="https://github.com/DeepakSilaych/sess">GitHub</a>
-      <a href="#install" class="btn">Install</a>
     </div>
   </div>
 </nav>
@@ -419,28 +418,33 @@
     One tool. No subcommands to memorize. Just <code style="font-family:var(--mono);font-size:14px;background:var(--light-gray);padding:1px 6px;border-radius:4px;">sess &lt;name&gt;</code>.
   </p>
 
-  <div class="commands">
-<span class="k">sess</span> <span class="c">new</span> feature-auth          <span class="c"># create + auto-attach</span>
-<span class="k">sess</span> feature-auth                 <span class="c"># reattach (Ctrl+\ to detach)</span>
-<span class="k">sess</span> <span class="c">ls</span>                          <span class="c"># list sessions</span>
-<span class="k">sess</span> <span class="c">rm</span> feature-auth              <span class="c"># destroy session + overlays</span>
-
-<span class="k">sess</span> <span class="c">overlay new</span> feature-auth bugfix main
-<span class="k">sess</span> <span class="c">overlay switch</span> feature-auth bugfix
-<span class="k">sess</span> <span class="c">overlay ls</span> feature-auth
-<span class="k">sess</span> <span class="c">overlay rm</span> feature-auth bugfix
-
-<span class="k">sess</span> <span class="c">diff</span> feature-auth           <span class="c"># git diff in overlay</span>
-<span class="k">sess</span> <span class="c">log</span> feature-auth            <span class="c"># activity log</span>
-<span class="k">sess</span> <span class="c">connections</span> feature-auth     <span class="c"># detach/exit/drop log</span>
-<span class="k">sess</span> <span class="c">path</span> feature-auth            <span class="c"># print overlay path</span>
-<span class="k">sess</span> <span class="c">code</span> feature-auth            <span class="c"># open Cursor / VS Code</span>
-
-<span class="k">sess</span> <span class="c">ssh</span>                         <span class="c"># SSH to configured VM</span>
-<span class="k">sess</span> <span class="c">up</span>                          <span class="c"># reconnect all active sessions</span>
-<span class="k">sess</span> <span class="c">remote add</span> default user@dev-vm
-<span class="k">sess</span> <span class="c">doctor</span>                      <span class="c"># check prerequisites</span>
-  </div>
+  <table class="comparison">
+    <thead>
+      <tr>
+        <th>Command</th>
+        <th>Description</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td><code>sess new &lt;name&gt;</code></td><td>Create session + auto-attach</td></tr>
+      <tr><td><code>sess &lt;name&gt;</code></td><td>Reattach (Ctrl+\ to detach)</td></tr>
+      <tr><td><code>sess ls</code></td><td>List sessions</td></tr>
+      <tr><td><code>sess rm &lt;name&gt;</code></td><td>Destroy session + overlays</td></tr>
+      <tr><td><code>sess overlay new &lt;s&gt; &lt;ov&gt; [br]</code></td><td>Create overlay from latest default branch</td></tr>
+      <tr><td><code>sess overlay switch &lt;s&gt; &lt;ov&gt;</code></td><td>Switch active overlay</td></tr>
+      <tr><td><code>sess overlay ls &lt;s&gt;</code></td><td>List overlays</td></tr>
+      <tr><td><code>sess overlay rm &lt;s&gt; &lt;ov&gt;</code></td><td>Remove overlay</td></tr>
+      <tr><td><code>sess diff &lt;name&gt;</code></td><td>Git diff in overlay</td></tr>
+      <tr><td><code>sess log &lt;name&gt;</code></td><td>Activity log</td></tr>
+      <tr><td><code>sess connections &lt;name&gt;</code></td><td>Connection log (detach/exit/drop)</td></tr>
+      <tr><td><code>sess path &lt;name&gt;</code></td><td>Print overlay path</td></tr>
+      <tr><td><code>sess code &lt;name&gt;</code></td><td>Open Cursor / VS Code</td></tr>
+      <tr><td><code>sess ssh</code></td><td>SSH to configured VM</td></tr>
+      <tr><td><code>sess up</code></td><td>Reconnect all active sessions</td></tr>
+      <tr><td><code>sess remote add [name] &lt;host&gt;</code></td><td>Configure remote VM</td></tr>
+      <tr><td><code>sess doctor</code></td><td>Check prerequisites</td></tr>
+    </tbody>
+  </table>
 </section>
 
 <section id="compare">
