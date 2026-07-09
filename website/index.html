@@ -1,0 +1,808 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>sess — dtach sessions with overlay isolation</title>
+<meta name="description" content="One tool. No worktrees. No containers. No tmux. Persistent terminal sessions with OverlayFS filesystem isolation.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0a0a;
+    --bg-elevated: #111111;
+    --bg-terminal: #0d0d0d;
+    --text: #e0e0e0;
+    --text-muted: #555555;
+    --text-dim: #333333;
+    --accent: #00ff88;
+    --accent-dim: #00aa5a;
+    --border: #1a1a1a;
+    --border-hover: #2a2a2a;
+    --red: #ff6b6b;
+    --font: 'JetBrains Mono', 'Fira Code', 'SF Mono', 'Cascadia Code', monospace;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 15px;
+    line-height: 1.7;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+
+  a { color: var(--accent); text-decoration: none; transition: color 0.15s; }
+  a:hover { color: var(--text); }
+
+  /* ── Nav ─────────────────────────────────────────── */
+  nav {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 100;
+    background: rgba(10, 10, 10, 0.85);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--border);
+    padding: 0 24px;
+  }
+  nav .inner {
+    max-width: 1080px;
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 56px;
+  }
+  nav .logo {
+    font-weight: 700;
+    font-size: 16px;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  nav .logo .dot {
+    width: 8px;
+    height: 8px;
+    background: var(--accent);
+    border-radius: 50%;
+    box-shadow: 0 0 8px var(--accent);
+  }
+  nav .links {
+    display: flex;
+    gap: 28px;
+    font-size: 13px;
+  }
+  nav .links a { color: var(--text-muted); }
+  nav .links a:hover { color: var(--accent); }
+
+  /* ── Layout ──────────────────────────────────────── */
+  section {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 80px 24px;
+  }
+
+  /* ── Hero ────────────────────────────────────────── */
+  .hero {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding-top: 56px;
+  }
+  .hero h1 {
+    font-size: clamp(28px, 5vw, 52px);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.15;
+    margin-bottom: 20px;
+  }
+  .hero h1 .accent { color: var(--accent); }
+  .hero .tagline {
+    font-size: 17px;
+    color: var(--text-muted);
+    margin-bottom: 48px;
+    max-width: 560px;
+  }
+  .hero .tagline strong {
+    color: var(--text);
+    font-weight: 500;
+  }
+
+  /* ── Terminal ────────────────────────────────────── */
+  .terminal {
+    background: var(--bg-terminal);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    margin-bottom: 48px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  }
+  .terminal-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 14px;
+    background: #161616;
+    border-bottom: 1px solid var(--border);
+  }
+  .terminal-bar .dot {
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    background: #333;
+  }
+  .terminal-bar .dot.red { background: #ff5f57; }
+  .terminal-bar .dot.yellow { background: #febc2e; }
+  .terminal-bar .dot.green { background: #28c840; }
+  .terminal-bar .title {
+    margin-left: 8px;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+  .terminal-body {
+    padding: 20px 24px;
+    font-size: 13.5px;
+    line-height: 1.8;
+    min-height: 340px;
+    white-space: pre-wrap;
+    overflow: hidden;
+  }
+  .terminal-body .prompt { color: var(--accent); }
+  .terminal-body .cmd { color: var(--text); }
+  .terminal-body .output { color: var(--text-muted); }
+  .terminal-body .comment { color: var(--text-dim); }
+  .terminal-body .cursor {
+    display: inline-block;
+    width: 8px;
+    height: 16px;
+    background: var(--accent);
+    vertical-align: text-bottom;
+    animation: blink 1s steps(2) infinite;
+  }
+  .terminal-body .typing {
+    border-right: 2px solid var(--accent);
+    animation: blink 0.8s steps(2) infinite;
+  }
+  @keyframes blink {
+    0%, 50% { opacity: 1; }
+    51%, 100% { opacity: 0; }
+  }
+
+  /* ── Hero CTAs ────────────────────────────────────── */
+  .cta-row {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 20px;
+    border-radius: 6px;
+    font-family: var(--font);
+    font-size: 14px;
+    font-weight: 500;
+    transition: all 0.15s;
+    cursor: pointer;
+    border: 1px solid transparent;
+  }
+  .btn-primary {
+    background: var(--accent);
+    color: var(--bg);
+  }
+  .btn-primary:hover {
+    background: var(--text);
+    color: var(--bg);
+  }
+  .btn-secondary {
+    background: transparent;
+    color: var(--text);
+    border-color: var(--border-hover);
+  }
+  .btn-secondary:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  /* ── Section heading ──────────────────────────────── */
+  .section-label {
+    font-size: 12px;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 12px;
+  }
+  .section-title {
+    font-size: clamp(22px, 3vw, 32px);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin-bottom: 48px;
+    line-height: 1.2;
+  }
+
+  /* ── Features ─────────────────────────────────────── */
+  .features {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0;
+    border-top: 1px solid var(--border);
+    border-left: 1px solid var(--border);
+  }
+  .feature {
+    padding: 32px 28px;
+    border-right: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+  }
+  .feature .icon {
+    font-size: 20px;
+    margin-bottom: 12px;
+    color: var(--accent);
+  }
+  .feature h3 {
+    font-size: 16px;
+    font-weight: 500;
+    margin-bottom: 8px;
+  }
+  .feature p {
+    font-size: 13.5px;
+    color: var(--text-muted);
+    line-height: 1.6;
+  }
+  .feature code {
+    color: var(--accent);
+    font-size: 12.5px;
+  }
+
+  /* ── Comparison table ─────────────────────────────── */
+  .comparison {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13.5px;
+  }
+  .comparison th,
+  .comparison td {
+    padding: 14px 16px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+  .comparison th {
+    color: var(--text-muted);
+    font-weight: 500;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .comparison td:first-child {
+    color: var(--text);
+    font-weight: 500;
+  }
+  .comparison .sess-col {
+    color: var(--accent);
+  }
+  .comparison .yes { color: var(--accent); }
+  .comparison .no { color: var(--text-dim); }
+  .comparison .partial { color: var(--text-muted); }
+  .comparison tr:hover td { background: var(--bg-elevated); }
+
+  /* ── Code blocks ──────────────────────────────────── */
+  .code-block {
+    background: var(--bg-terminal);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 24px;
+    font-size: 13px;
+    line-height: 1.8;
+    overflow-x: auto;
+    margin-bottom: 24px;
+  }
+  .code-block .prompt { color: var(--accent); }
+  .code-block .cmd { color: var(--text); }
+  .code-block .comment { color: var(--text-dim); }
+  .code-block .flag { color: var(--accent-dim); }
+  .code-block .string { color: #ce9178; }
+
+  /* ── Install ──────────────────────────────────────── */
+  .install-cmd {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--bg-terminal);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 20px;
+    font-size: 14px;
+    margin-bottom: 16px;
+    transition: border-color 0.15s;
+  }
+  .install-cmd:hover { border-color: var(--border-hover); }
+  .install-cmd .prompt { color: var(--accent); }
+  .install-cmd .cmd { color: var(--text); flex: 1; }
+  .install-cmd .copy {
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 12px;
+    padding: 4px 8px;
+    border-radius: 4px;
+    transition: all 0.15s;
+  }
+  .install-cmd .copy:hover { color: var(--accent); background: var(--bg-elevated); }
+
+  /* ── Platform grid ────────────────────────────────── */
+  .platforms {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 16px;
+  }
+  .platform {
+    padding: 20px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    transition: border-color 0.15s;
+  }
+  .platform:hover { border-color: var(--border-hover); }
+  .platform h4 {
+    font-size: 15px;
+    font-weight: 500;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .platform p {
+    font-size: 12.5px;
+    color: var(--text-muted);
+  }
+
+  /* ── Connection log ───────────────────────────────── */
+  .conn-demo {
+    background: var(--bg-terminal);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px 24px;
+    font-size: 13px;
+    line-height: 1.9;
+  }
+  .conn-demo .ts { color: var(--text-dim); }
+  .conn-demo .event-detach { color: var(--accent); }
+  .conn-demo .event-exit { color: #febc2e; }
+  .conn-demo .event-drop { color: var(--red); }
+  .conn-demo .header { color: var(--text-muted); margin-bottom: 8px; }
+
+  /* ── Footer ───────────────────────────────────────── */
+  footer {
+    border-top: 1px solid var(--border);
+    padding: 48px 24px;
+    text-align: center;
+  }
+  footer .inner {
+    max-width: 1080px;
+    margin: 0 auto;
+  }
+  footer p {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-bottom: 12px;
+  }
+  footer .links {
+    display: flex;
+    justify-content: center;
+    gap: 24px;
+    font-size: 13px;
+  }
+  footer .links a { color: var(--text-muted); }
+  footer .links a:hover { color: var(--accent); }
+
+  /* ── Responsive ───────────────────────────────────── */
+  @media (max-width: 768px) {
+    .features { grid-template-columns: 1fr; }
+    .comparison { font-size: 12px; }
+    .comparison th, .comparison td { padding: 10px 8px; }
+    nav .links { display: none; }
+    section { padding: 48px 20px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+</style>
+</head>
+<body>
+
+<!-- ── Nav ──────────────────────────────────────────── -->
+<nav>
+  <div class="inner">
+    <a href="#" class="logo">
+      <span class="dot"></span>
+      sess
+    </a>
+    <div class="links">
+      <a href="#features">Features</a>
+      <a href="#commands">Commands</a>
+      <a href="#compare">Compare</a>
+      <a href="#install">Install</a>
+      <a href="https://github.com/DeepakSilaych/sess">GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<!-- ── Hero ─────────────────────────────────────────── -->
+<section class="hero">
+  <div class="section-label">v0.4.3</div>
+  <h1>dtach sessions with<br><span class="accent">overlay isolation</span></h1>
+  <p class="tagline">
+    <strong>One tool.</strong> No worktrees. No containers. No tmux.<br>
+    Persistent terminal sessions with OverlayFS filesystem isolation on Linux, APFS clones on macOS, SSH remote support, and auto-reconnect on wake.
+  </p>
+
+  <div class="terminal">
+    <div class="terminal-bar">
+      <span class="dot red"></span>
+      <span class="dot yellow"></span>
+      <span class="dot green"></span>
+      <span class="title">sess — 80x24</span>
+    </div>
+    <div class="terminal-body" id="terminal-demo">
+    </div>
+  </div>
+
+  <div class="cta-row">
+    <a href="#install" class="btn btn-primary">Install</a>
+    <a href="https://github.com/DeepakSilaych/sess" class="btn btn-secondary">View on GitHub</a>
+  </div>
+</section>
+
+<!-- ── Features ─────────────────────────────────────── -->
+<section id="features">
+  <div class="section-label">What it does</div>
+  <h2 class="section-title">Six things, done right.</h2>
+
+  <div class="features">
+    <div class="feature">
+      <div class="icon">▢</div>
+      <h3>dtach persistence</h3>
+      <p>Single Unix socket per session. No server process. <code>Ctrl+\</code> to detach, <code>sess &lt;name&gt;</code> to reattach. Sessions survive SSH drops, laptop sleep, network failures.</p>
+    </div>
+    <div class="feature">
+      <div class="icon">◈</div>
+      <h3>OverlayFS isolation</h3>
+      <p>N independent writable views of the same repo. Only deltas stored. Writing to one overlay never affects the original or other overlays. Linux kernel-native, instant creation.</p>
+    </div>
+    <div class="feature">
+      <div class="icon">⬡</div>
+      <h3>APFS clones on macOS</h3>
+      <p>Same <code>sess overlay new</code> command, different kernel primitive. Copy-on-write clones on APFS — instant, isolated, shared disk blocks for unchanged files.</p>
+    </div>
+    <div class="feature">
+      <div class="icon">≣</div>
+      <h3>Connection log</h3>
+      <p>Every session end is classified: <code>detach</code> (you pressed Ctrl+\), <code>exit</code> (you typed exit), or <code>drop</code> (SSH timeout, network failure). Know what happened while you were away.</p>
+    </div>
+    <div class="feature">
+      <div class="icon">⇄</div>
+      <h3>Remote sessions</h3>
+      <p><code>sess remote add</code> once. Then <code>sess new</code>, <code>sess &lt;name&gt;</code>, and <code>sess ssh</code> all go through SSH automatically. Sessions live on the VM. Your laptop is just a terminal.</p>
+    </div>
+    <div class="feature">
+      <div class="icon">⚡</div>
+      <h3>Auto-reconnect on wake</h3>
+      <p><code>sess up</code> reconnects to all previously active sessions. On macOS, SleepWatcher triggers it automatically when you open your laptop. Zero commands to type.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ── Connection log demo ─────────────────────────── -->
+<section>
+  <div class="section-label">Connection log</div>
+  <h2 class="section-title">Did you close it, or did your laptop sleep kill it?</h2>
+
+  <div class="conn-demo">
+    <div class="header">$ sess connections feature-auth</div>
+    <div><span class="ts">2026-07-09T14:30:00+05:30</span>  <span class="event-detach">detach</span> (Ctrl+\)</div>
+    <div><span class="ts">2026-07-09T14:35:00+05:30</span>  <span class="event-detach">detach</span> (Ctrl+\)</div>
+    <div><span class="ts">2026-07-09T15:12:00+05:30</span>  <span class="event-drop">drop</span> (exit code 141)</div>
+    <div><span class="ts">2026-07-09T15:12:30+05:30</span>  <span class="event-detach">detach</span> (Ctrl+\)</div>
+    <div><span class="ts">2026-07-09T16:45:00+05:30</span>  <span class="event-exit">exit</span></div>
+  </div>
+</section>
+
+<!-- ── Commands ─────────────────────────────────────── -->
+<section id="commands">
+  <div class="section-label">Reference</div>
+  <h2 class="section-title">Every command.</h2>
+
+  <div class="code-block"><span class="prompt">$</span> <span class="cmd">sess new feature-auth</span>                    <span class="comment"># create session + auto-attach</span>
+<span class="prompt">$</span> <span class="cmd">sess feature-auth</span>                       <span class="comment"># attach to existing session</span>
+                                           <span class="comment"># Ctrl+\ to detach</span>
+
+<span class="prompt">$</span> <span class="cmd">sess ls</span>                                <span class="comment"># list sessions</span>
+<span class="prompt">$</span> <span class="cmd">sess rm feature-auth</span>                    <span class="comment"># destroy session + overlays</span>
+
+<span class="prompt">$</span> <span class="cmd">sess overlay new feature-auth bugfix main</span>  <span class="comment"># create overlay from latest main</span>
+<span class="prompt">$</span> <span class="cmd">sess overlay switch feature-auth bugfix</span>    <span class="comment"># switch active overlay</span>
+<span class="prompt">$</span> <span class="cmd">sess overlay ls feature-auth</span>            <span class="comment"># list overlays</span>
+<span class="prompt">$</span> <span class="cmd">sess overlay rm feature-auth bugfix</span>     <span class="comment"># remove overlay</span>
+
+<span class="prompt">$</span> <span class="cmd">sess diff feature-auth</span>                 <span class="comment"># git diff in overlay</span>
+<span class="prompt">$</span> <span class="cmd">sess log feature-auth</span>                  <span class="comment"># activity log</span>
+<span class="prompt">$</span> <span class="cmd">sess connections feature-auth</span>           <span class="comment"># connection log</span>
+<span class="prompt">$</span> <span class="cmd">sess path feature-auth</span>                  <span class="comment"># print overlay path (for scripts)</span>
+<span class="prompt">$</span> <span class="cmd">sess code feature-auth</span>                  <span class="comment"># open Cursor / VS Code</span>
+<span class="prompt">$</span> <span class="cmd">sess status</span>                             <span class="comment"># overall status</span>
+
+<span class="prompt">$</span> <span class="cmd">sess ssh</span>                               <span class="comment"># SSH to configured VM</span>
+<span class="prompt">$</span> <span class="cmd">sess up</span>                                <span class="comment"># reconnect all active sessions</span>
+<span class="prompt">$</span> <span class="cmd">sess remote add default user@dev-vm</span>    <span class="comment"># configure remote VM</span>
+
+<span class="prompt">$</span> <span class="cmd">sess doctor</span>                            <span class="comment"># check prerequisites</span>
+<span class="prompt">$</span> <span class="cmd">sess help</span>                              <span class="comment"># show help</span></div>
+</section>
+
+<!-- ── Comparison ───────────────────────────────────── -->
+<section id="compare">
+  <div class="section-label">Comparison</div>
+  <h2 class="section-title">Why not just use...?</h2>
+
+  <table class="comparison">
+    <thead>
+      <tr>
+        <th></th>
+        <th class="sess-col">sess</th>
+        <th>git worktree</th>
+        <th>tmux</th>
+        <th>Docker</th>
+        <th>VM per agent</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Filesystem isolation</td>
+        <td class="sess-col yes">per-overlay</td>
+        <td class="partial">branch-level</td>
+        <td class="no">shared FS</td>
+        <td class="yes">full</td>
+        <td class="yes">full</td>
+      </tr>
+      <tr>
+        <td>Creation time</td>
+        <td class="sess-col yes">instant</td>
+        <td class="partial">~1s</td>
+        <td class="yes">instant</td>
+        <td class="partial">seconds</td>
+        <td class="no">minutes</td>
+      </tr>
+      <tr>
+        <td>Disk per session</td>
+        <td class="sess-col yes">deltas only</td>
+        <td class="partial">full copy</td>
+        <td class="yes">0</td>
+        <td class="no">full copy</td>
+        <td class="no">full VM</td>
+      </tr>
+      <tr>
+        <td>SSH persistence</td>
+        <td class="sess-col yes">dtach</td>
+        <td class="no">manual</td>
+        <td class="yes">yes</td>
+        <td class="partial">manual</td>
+        <td class="yes">VM stays up</td>
+      </tr>
+      <tr>
+        <td>Path stability</td>
+        <td class="sess-col yes">same path</td>
+        <td class="no">varies</td>
+        <td class="yes">N/A</td>
+        <td class="partial">needs mapping</td>
+        <td class="partial">needs mapping</td>
+      </tr>
+      <tr>
+        <td>Extra process</td>
+        <td class="sess-col yes">none</td>
+        <td class="yes">none</td>
+        <td class="no">server</td>
+        <td class="no">daemon</td>
+        <td class="no">VM</td>
+      </tr>
+      <tr>
+        <td>Auto-reconnect</td>
+        <td class="sess-col yes">sess up</td>
+        <td class="no">no</td>
+        <td class="partial">manual</td>
+        <td class="no">no</td>
+        <td class="partial">manual</td>
+      </tr>
+      <tr>
+        <td>Connection log</td>
+        <td class="sess-col yes">detach/exit/drop</td>
+        <td class="no">no</td>
+        <td class="no">no</td>
+        <td class="no">no</td>
+        <td class="no">no</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ── Platform support ─────────────────────────────── -->
+<section>
+  <div class="section-label">Platform</div>
+  <h2 class="section-title">Works where you work.</h2>
+
+  <div class="platforms">
+    <div class="platform">
+      <h4>🐧 Linux</h4>
+      <p>Full OverlayFS support. Instant writable overlays. Delta-only disk usage. Requires root or CAP_SYS_ADMIN for mounts.</p>
+    </div>
+    <div class="platform">
+      <h4>🍎 macOS</h4>
+      <p>APFS copy-on-write clones as overlay fallback. dtach sessions, status bar, remote SSH, auto-reconnect via SleepWatcher.</p>
+    </div>
+    <div class="platform">
+      <h4>🔌 Remote (SSH)</h4>
+      <p>Sessions live on the VM. <code>sess ssh</code> connects. <code>sess up</code> reconnects on wake. Laptop is just a terminal.</p>
+    </div>
+    <div class="platform">
+      <h4>⌨️ Editor</h4>
+      <p><code>sess code &lt;name&gt;</code> opens Cursor or VS Code. Remote sessions use Remote-SSH. On demand, never automatic.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ── Install ──────────────────────────────────────── -->
+<section id="install">
+  <div class="section-label">Install</div>
+  <h2 class="section-title">One command.</h2>
+
+  <div class="install-cmd" onclick="copyCmd(this)">
+    <span class="prompt">$</span>
+    <span class="cmd">npx @deepaksilaych/sess</span>
+    <span class="copy">copy</span>
+  </div>
+
+  <div class="install-cmd" onclick="copyCmd(this)">
+    <span class="prompt">$</span>
+    <span class="cmd">npm install -g @deepaksilaych/sess</span>
+    <span class="copy">copy</span>
+  </div>
+
+  <div class="install-cmd" onclick="copyCmd(this)">
+    <span class="prompt">$</span>
+    <span class="cmd">git clone https://github.com/DeepakSilaych/sess.git && cd sess && sudo make install</span>
+    <span class="copy">copy</span>
+  </div>
+
+  <p style="color: var(--text-muted); font-size: 13px; margin-top: 24px;">
+    Requires: dtach, git, bash. OverlayFS needs Linux. APFS clones need macOS.
+  </p>
+</section>
+
+<!-- ── Footer ───────────────────────────────────────── -->
+<footer>
+  <div class="inner">
+    <p>sess — dtach sessions with overlay isolation</p>
+    <div class="links">
+      <a href="https://github.com/DeepakSilaych/sess">GitHub</a>
+      <a href="https://www.npmjs.com/package/@deepaksilaych/sess">npm</a>
+      <a href="https://github.com/DeepakSilaych/sess/issues">Issues</a>
+      <a href="#">MIT License</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+// ── Terminal animation ─────────────────────────────────
+(function() {
+  const term = document.getElementById('terminal-demo');
+  const lines = [
+    { type: 'prompt', text: '$ sess new feature-auth', delay: 0 },
+    { type: 'output', text: 'Session \'feature-auth\' created. Attaching...', delay: 600 },
+    { type: 'output', text: '', delay: 200 },
+    { type: 'bar', text: ' feature-auth | none | main | ~/projects/myapp     14:30 ', delay: 100 },
+    { type: 'output', text: '', delay: 200 },
+    { type: 'prompt', text: '$ echo "working on auth..."', delay: 400 },
+    { type: 'output', text: 'working on auth...', delay: 300 },
+    { type: 'prompt', text: '$ git add -A && git commit -m "wip: auth middleware"', delay: 500 },
+    { type: 'output', text: '[main 2a3b4c5] wip: auth middleware', delay: 400 },
+    { type: 'output', text: ' 3 files changed, 47 insertions(+)', delay: 100 },
+    { type: 'output', text: '', delay: 200 },
+    { type: 'comment', text: '# Ctrl+\\ to detach — session persists', delay: 300 },
+    { type: 'output', text: '', delay: 300 },
+    { type: 'prompt', text: '$ sess feature-auth', delay: 400 },
+    { type: 'output', text: '', delay: 200 },
+    { type: 'bar', text: ' feature-auth | none | main | ~/projects/myapp     14:35 ', delay: 100 },
+    { type: 'output', text: '', delay: 200 },
+    { type: 'prompt', text: '$ sess overlay new feature-auth bugfix-1222 main', delay: 400 },
+    { type: 'output', text: "Pulling latest 'main'...", delay: 500 },
+    { type: 'output', text: "Overlay 'bugfix-1222' created and mounted.", delay: 400 },
+    { type: 'output', text: '  Branch:  main', delay: 100 },
+    { type: 'output', text: '  Path:    ~/.sess/sessions/feature-auth/overlays/bugfix-1222/merged', delay: 100 },
+    { type: 'output', text: '', delay: 200 },
+    { type: 'bar', text: ' feature-auth | bugfix-1222 | main | ~/projects/myapp     14:36 ', delay: 200 },
+    { type: 'output', text: '', delay: 200 },
+    { type: 'prompt', text: '$ echo "isolated work" > new-file.txt', delay: 400 },
+    { type: 'comment', text: '# original repo untouched — isolation works', delay: 300 },
+    { type: 'output', text: '', delay: 200 },
+    { type: 'prompt', text: '$ sess connections feature-auth', delay: 400 },
+    { type: 'output', text: '2026-07-09T14:30:00  detach (Ctrl+\\)', delay: 300 },
+    { type: 'output', text: '2026-07-09T14:35:00  detach (Ctrl+\\)', delay: 100 },
+    { type: 'cursor', text: '', delay: 400 },
+  ];
+
+  let i = 0;
+  function next() {
+    if (i >= lines.length) {
+      // Restart after pause
+      setTimeout(() => {
+        term.innerHTML = '';
+        i = 0;
+        next();
+      }, 5000);
+      return;
+    }
+    const line = lines[i];
+    let el;
+    if (line.type === 'bar') {
+      el = document.createElement('div');
+      el.style.cssText = 'color: #333; background: #111; padding: 2px 0; border-top: 1px solid #1a1a1a; border-bottom: 1px solid #1a1a1a; margin: 2px 0;';
+      el.textContent = line.text;
+    } else if (line.type === 'cursor') {
+      el = document.createElement('div');
+      el.innerHTML = '<span class="prompt">$</span> <span class="cursor"></span>';
+    } else if (line.type === 'prompt') {
+      el = document.createElement('div');
+      const cmd = line.text.replace(/^\$ /, '');
+      el.innerHTML = '<span class="prompt">$</span> <span class="cmd typing">' + escapeHtml(cmd) + '</span>';
+    } else if (line.type === 'comment') {
+      el = document.createElement('div');
+      el.className = 'comment';
+      el.textContent = line.text;
+    } else {
+      el = document.createElement('div');
+      el.className = 'output';
+      el.textContent = line.text;
+    }
+    term.appendChild(el);
+    i++;
+    setTimeout(next, line.delay);
+  }
+
+  function escapeHtml(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  // Start after page load
+  setTimeout(next, 800);
+})();
+
+// ── Copy to clipboard ───────────────────────────────────
+function copyCmd(el) {
+  const cmd = el.querySelector('.cmd').textContent;
+  navigator.clipboard.writeText(cmd).then(() => {
+    const copyEl = el.querySelector('.copy');
+    const orig = copyEl.textContent;
+    copyEl.textContent = 'copied';
+    copyEl.style.color = 'var(--accent)';
+    setTimeout(() => {
+      copyEl.textContent = orig;
+      copyEl.style.color = '';
+    }, 1500);
+  });
+}
+</script>
+
+</body>
+</html>
