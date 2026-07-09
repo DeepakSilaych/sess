@@ -1,0 +1,73 @@
+#compdef sess
+
+_sess() {
+    local -a commands
+    commands=(
+        'new:Create session and auto-attach'
+        'rm:Remove session (unmounts overlays)'
+        'ls:List sessions'
+        'overlay:Manage overlays (new, switch, ls, rm)'
+        'diff:Git diff in session overlay'
+        'log:Activity log'
+        'path:Print overlay/cwd path'
+        'status:Session or overall status'
+        'up:Reconnect to previously active sessions'
+        'remote:Manage remote VM connections (add, ls, rm)'
+        'doctor:Check prerequisites'
+        'help:Show help'
+        'version:Show version'
+    )
+
+    _sess_names() {
+        local sdir="${SESS_DIR:-$HOME/.sess}/sessions"
+        [[ -d "$sdir" ]] || return
+        for d in "$sdir"/*/; do
+            [[ -d "$d" ]] || continue
+            basename "$d"
+        done
+    }
+
+    if (( CURRENT == 2 )); then
+        local sessions
+        sessions=($(_sess_names))
+        _describe 'command' commands
+        _describe 'session' sessions
+    elif (( CURRENT == 3 )); then
+        case "${words[2]}" in
+            new)
+                _arguments ':branch:_git_branches'
+                ;;
+            rm|diff|log|path|status)
+                _arguments ':session:_values "sessions" $(_sess_names)'
+                ;;
+            overlay)
+                local -a overlay_cmds
+                overlay_cmds=(new switch ls rm)
+                _describe 'overlay command' overlay_cmds
+                ;;
+            remote)
+                local -a remote_cmds
+                remote_cmds=(add ls rm)
+                _describe 'remote command' remote_cmds
+                ;;
+        esac
+    elif (( CURRENT >= 4 )); then
+        case "${words[2]}:${words[3]}" in
+            overlay:new)
+                _arguments ':session:_values "sessions" $(_sess_names)'
+                ;;
+            overlay:switch|overlay:rm)
+                local session="${words[4]}"
+                _arguments ':overlay:_values "overlays"'
+                ;;
+            overlay:ls)
+                _arguments ':session:_values "sessions" $(_sess_names)'
+                ;;
+            remote:add)
+                _arguments ':name:default' ':host:_ssh_hosts'
+                ;;
+        esac
+    fi
+}
+
+_sess "$@"

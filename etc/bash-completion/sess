@@ -1,0 +1,47 @@
+# bash completion for sess
+_sess() {
+    local cur prev commands
+    COMPREPLY=()
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    prev="${COMP_WORDS[COMP_CWORD-1]}"
+    commands="new rm ls overlay diff log connections path status up ssh remote doctor help version"
+
+    _sess_names() {
+        local sdir="${SESS_DIR:-$HOME/.sess}/sessions"
+        [[ -d "$sdir" ]] || return
+        for d in "$sdir"/*/; do
+            [[ -d "$d" ]] || continue
+            basename "$d"
+        done
+    }
+
+    _sess_branches() {
+        git branch --format='%(refname:short)' 2>/dev/null
+    }
+
+    case "$prev" in
+        new)
+            COMPREPLY=($(compgen -W "$(_sess_branches)" -- "$cur"))
+            ;;
+        rm|diff|log|path|status|connections|conn)
+            COMPREPLY=($(compgen -W "$(_sess_names)" -- "$cur"))
+            ;;
+        overlay)
+            COMPREPLY=($(compgen -W "new switch ls rm" -- "$cur"))
+            ;;
+        remote)
+            COMPREPLY=($(compgen -W "add ls rm" -- "$cur"))
+            ;;
+        add)
+            COMPREPLY=($(compgen -W "default" -- "$cur"))
+            ;;
+        *)
+            if [[ $COMP_CWORD -eq 1 ]]; then
+                local sessions
+                sessions="$(_sess_names)"
+                COMPREPLY=($(compgen -W "$commands $sessions" -- "$cur"))
+            fi
+            ;;
+    esac
+}
+complete -F _sess sess

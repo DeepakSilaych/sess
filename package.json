@@ -1,0 +1,49 @@
+{
+  "name": "sess-cli",
+  "version": "0.4.0",
+  "description": "dtach sessions with overlay isolation — one tool, no worktrees, no containers, no tmux",
+  "keywords": [
+    "dtach",
+    "overlayfs",
+    "apfs",
+    "session",
+    "isolation",
+    "git",
+    "overlay",
+    "ssh",
+    "terminal",
+    "development",
+    "devtools",
+    "cli"
+  ],
+  "homepage": "https://github.com/deepaksilaych/sess#readme",
+  "bugs": {
+    "url": "https://github.com/deepaksilaych/sess/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/deepaksilaych/sess.git"
+  },
+  "license": "MIT",
+  "author": "Deepak Silaych",
+  "bin": {
+    "sess": "./bin/sess"
+  },
+  "files": [
+    "bin/sess",
+    "etc/bash-completion/sess",
+    "etc/zsh-completion/_sess",
+    "etc/wakeup",
+    "README.md",
+    "LICENSE"
+  ],
+  "os": [
+    "darwin",
+    "linux"
+  ],
+  "engines": {
+    "node": ">=14"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}

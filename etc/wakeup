@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# ~/.wakeup — macOS SleepWatcher hook
+# Called automatically when the laptop wakes from sleep.
+#
+# Install SleepWatcher:
+#   brew install sleepwatcher
+#   cp wakeup ~/.wakeup
+#   chmod +x ~/.wakeup
+#
+# SleepWatcher will call this script on every wake.
+# It reconnects to all previously active sess sessions.
+
+# Don't block wake — run in background
+(
+    # Wait a few seconds for network to come up
+    sleep 3
+
+    # Check if sess is available
+    command -v sess &>/dev/null || exit 0
+
+    # Check if there are active sessions to reconnect to
+    SESS_DIR="${SESS_DIR:-$HOME/.sess}"
+    active_file="$SESS_DIR/active-sessions"
+    [[ -f "$active_file" ]] || exit 0
+    [[ -s "$active_file" ]] || exit 0
+
+    # Reconnect to all previously active sessions
+    sess up
+) &

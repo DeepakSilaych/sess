@@ -1,0 +1,1193 @@
+#!/usr/bin/env bash
+# sess — dtach sessions with overlay isolation
+# Single binary, zero dependencies beyond dtach+git.
+# On Linux: OverlayFS for filesystem isolation.
+# On macOS: plain sessions (no overlay).
+# Auto-reconnect: sess up reconnects to previously active sessions.
+set -euo pipefail
+
+VERSION="0.4.0"
+PROG="$(basename "$0")"
+SESS_DIR="${SESS_DIR:-$HOME/.sess}"
+
+# ─── Output ─────────────────────────────────────────────────────────────────
+die()   { printf '%s\n' "$*" >&2; exit 1; }
+info()  { printf '%s\n' "$*"; }
+
+# ─── Helpers ─────────────────────────────────────────────────────────────────
+_sess_dir()    { echo "$SESS_DIR/sessions/$1"; }
+_socket()      { echo "$SESS_DIR/sessions/$1/socket"; }
+_state()       { echo "$SESS_DIR/sessions/$1/state"; }
+_log_file()    { echo "$SESS_DIR/sessions/$1/log"; }
+_overlay_dir() { echo "$SESS_DIR/sessions/$1/overlays"; }
+_is_macos()   { [[ "$(uname -s)" == "Darwin" ]]; }
+_is_linux()   { [[ "$(uname -s)" == "Linux" ]]; }
+
+# ─── Remote config ──────────────────────────────────────────────────────────
+_remote_config() { echo "$SESS_DIR/remote"; }
+
+_remote_get() {
+    local name="$1" key="$2"
+    local cfg
+    cfg="$(_remote_config)"
+    [[ -f "$cfg" ]] || return 1
+    grep "^${name}.${key}=" "$cfg" | head -1 | cut -d= -f2-
+}
+
+_remote_set() {
+    local name="$1" key="$2" value="$3"
+    local cfg
+    cfg="$(_remote_config)"
+    mkdir -p "$(dirname "$cfg")"
+    # Remove old entry, append new
+    if [[ -f "$cfg" ]]; then
+        local tmp
+        tmp="$(mktemp)"
+        grep -v "^${name}.${key}=" "$cfg" > "$tmp" 2>/dev/null || true
+        echo "${name}.${key}=${value}" >> "$tmp"
+        mv "$tmp" "$cfg"
+    else
+        echo "${name}.${key}=${value}" > "$cfg"
+    fi
+}
+
+# ─── Connection log ──────────────────────────────────────────────────────────
+# Tracks how each session ended: detach (Ctrl+\), exit (typed exit/ctrl-d),
+# drop (SSH timeout, network failure, laptop sleep).
+# Stored in ~/.sess/sessions/<name>/connections
+_conn_log() {
+    local session="$1" event="$2" detail="${3:-}"
+    local conn_log
+    conn_log="$(_sess_dir "$session")/connections"
+    mkdir -p "$(dirname "$conn_log")"
+    printf '%s  %s%s\n' "$(date -Iseconds)" "$event" "${detail:+ ($detail)}" >> "$conn_log"
+}
+
+# ─── Generate the status bar hook ──────────────────────────────────────────
+# Rendered via PROMPT_COMMAND on every prompt. Plain text, no colors.
+# Shows: session | overlay | branch | cwd
+generate_hook() {
+    local session="$1"
+    local hook_path="$2"
+
+    cat > "$hook_path" <<'HOOK'
+# sess status bar - plain text, no colors
+# Shows: session | overlay | branch | cwd | time
+_sess_bar() {
+    [[ -t 1 ]] || return 0
+    local _cols _rows _branch _overlay _dir _left _right _pad
+    _cols=$(tput cols 2>/dev/null || echo 80)
+    _rows=$(tput lines 2>/dev/null || echo 24)
+    _branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "${SESS_BRANCH:-?}")"
+    _overlay="${SESS_OVERLAY:-none}"
+    _dir="$(pwd | sed "s|^$HOME|~|")"
+
+    _left=" ${SESS_SESSION:-?} | ${_overlay} | ${_branch} | ${_dir} "
+    _right="$(date +%H:%M) "
+    _pad=$(( _cols - ${#_left} - ${#_right} ))
+    [[ $_pad -lt 1 ]] && _pad=1
+
+    printf '\033[s'
+    printf '\033[%d;1H' "$(( _rows ))"
+    printf '%s%*s%s' "$_left" "$_pad" '' "$_right"
+    printf '\033[K\033[u'
+}
+
+# Terminal title
+_sess_title() {
+    [[ -t 1 ]] || return 0
+    local _branch
+    _branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "${SESS_BRANCH:-?}")"
+    printf '\033]2;sess:%s [%s] %s\033\\' "${SESS_SESSION:-?}" "$_branch" "${SESS_OVERLAY:-none}"
+}
+
+# Hook into PROMPT_COMMAND
+if [[ -n "${PROMPT_COMMAND:-}" ]]; then
+    PROMPT_COMMAND="${PROMPT_COMMAND%;};_sess_bar;_sess_title"
+else
+    PROMPT_COMMAND="_sess_bar; _sess_title"
+fi
+export PROMPT_COMMAND
+
+# Update on cd
+_cd() { \cd "$@"; _sess_bar; }
+alias cd='_cd' 2>/dev/null || true
+HOOK
+}
+
+# ─── Log an event ───────────────────────────────────────────────────────────
+_log_event() {
+    local session="$1" event="$2"
+    local log
+    log="$(_log_file "$session")"
+    mkdir -p "$(dirname "$log")"
+    printf '%s  %s\n' "$(date -Iseconds)" "$event" >> "$log"
+}
+
+# ─── Record which sessions are "active" (last attached) ────────────────────
+# Used by `sess up` to know what to reconnect.
+_mark_active() {
+    local session="$1"
+    local active_file="$SESS_DIR/active-sessions"
+    mkdir -p "$(dirname "$active_file")"
+    # Remove if already listed, then append (most recent last)
+    local tmp
+    tmp="$(mktemp)"
+    grep -v "^${session}$" "$active_file" 2>/dev/null > "$tmp" || true
+    echo "$session" >> "$tmp"
+    mv "$tmp" "$active_file"
+}
+
+_mark_inactive() {
+    local session="$1"
+    local active_file="$SESS_DIR/active-sessions"
+    [[ -f "$active_file" ]] || return 0
+    local tmp
+    tmp="$(mktemp)"
+    grep -v "^${session}$" "$active_file" 2>/dev/null > "$tmp" || true
+    mv "$tmp" "$active_file"
+}
+
+# ─── cmd: new ────────────────────────────────────────────────────────────────
+cmd_new() {
+    local session="${1:?Usage: sess new <name> [branch]}"
+    local branch="${2:-}"
+
+    local sdir
+    sdir="$(_sess_dir "$session")"
+
+    [[ -d "$sdir" ]] && die "Session '$session' already exists. Use: sess $session"
+
+    # Determine branch
+    if [[ -z "$branch" ]] && git rev-parse --abbrev-ref HEAD &>/dev/null; then
+        branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
+    fi
+    branch="${branch:-main}"
+
+    mkdir -p "$sdir"
+
+    # Write session state
+    cat > "$(_state "$session")" <<STATE
+SESS_SESSION=$session
+SESS_BRANCH=$branch
+SESS_OVERLAY=none
+SESS_CWD=$(pwd)
+SESS_CREATED=$(date -Iseconds)
+STATE
+
+    _log_event "$session" "created (branch: $branch)"
+    _mark_active "$session"
+
+    info "Session '$session' created. Attaching..."
+    cmd_attach "$session"
+}
+
+# ─── cmd: attach ─────────────────────────────────────────────────────────────
+cmd_attach() {
+    local session="${1:?Usage: sess <name>}"
+
+    # If a remote is configured, delegate to remote attach
+    local remote
+    remote="$(_remote_get "default" "host" 2>/dev/null || true)"
+    if [[ -n "$remote" ]]; then
+        cmd_remote_attach "$session"
+        return
+    fi
+
+    local sdir
+    sdir="$(_sess_dir "$session")"
+    [[ -d "$sdir" ]] || die "Session '$session' does not exist. Use: sess new $session"
+
+    source "$(_state "$session")"
+
+    local socket
+    socket="$(_socket "$session")"
+    local hook_path="$sdir/hook.sh"
+
+    # Generate the status bar hook
+    mkdir -p "$(dirname "$hook_path")"
+    generate_hook "$session" "$hook_path"
+
+    _log_event "$session" "attached"
+    _mark_active "$session"
+
+    # Build the shell command: set env vars, source hook, exec shell
+    local cwd="${SESS_CWD:-$(pwd)}"
+    # If there's an active overlay, use its merged path as cwd
+    if [[ "${SESS_OVERLAY:-none}" != "none" ]] && _is_linux; then
+        local merged="$SESS_DIR/sessions/$session/overlays/$SESS_OVERLAY/merged"
+        if [[ -d "$merged" ]]; then
+            cwd="$merged"
+        fi
+    fi
+
+    local shell_cmd="SESS_SESSION='$session' SESS_BRANCH='$SESS_BRANCH' SESS_OVERLAY='${SESS_OVERLAY:-none}' SESS_DIR='$SESS_DIR'; cd '$cwd' 2>/dev/null || cd; source '$hook_path'; exec \${SHELL:-/bin/bash}"
+
+    if command -v dtach &>/dev/null; then
+        local dtach_rc=0
+        dtach -A "$socket" -e '^\' -r none bash -c "$shell_cmd" || dtach_rc=$?
+
+        # Classify how the session ended
+        if [[ $dtach_rc -eq 0 ]]; then
+            # Clean exit: user typed "exit" or ctrl-d in the shell
+            _conn_log "$session" "exit"
+            _log_event "$session" "detached (exit)"
+        elif [[ $dtach_rc -eq 1 ]]; then
+            # dtach detach: user pressed Ctrl+\
+            _conn_log "$session" "detach" "Ctrl+\\"
+            _log_event "$session" "detached (Ctrl+\\)"
+        else
+            # Abnormal: SSH drop, timeout, signal, etc.
+            _conn_log "$session" "drop" "exit code $dtach_rc"
+            _log_event "$session" "connection dropped (exit code $dtach_rc)"
+        fi
+    elif command -v abduco &>/dev/null; then
+        abduco -a "$session" bash -c "$shell_cmd"
+    else
+        die "Neither dtach nor abduco found. Install dtach: apt install dtach / brew install dtach"
+    fi
+}
+
+# ─── cmd: ls ─────────────────────────────────────────────────────────────────
+cmd_ls() {
+    local sbase="$SESS_DIR/sessions"
+    [[ -d "$sbase" ]] || { info "No sessions. Use: sess new <name>"; return 0; }
+
+    local count=0
+    for d in "$sbase"/*/; do
+        [[ -d "$d" ]] || continue
+        count=$((count + 1))
+    done
+
+    [[ $count -eq 0 ]] && { info "No sessions. Use: sess new <name>"; return 0; }
+
+    printf '%-20s %-15s %-10s %-20s\n' "SESSION" "BRANCH" "OVERLAY" "CREATED"
+    printf '%-20s %-15s %-10s %-20s\n' "--------------------" "---------------" "----------" "--------------------"
+
+    for d in "$sbase"/*/; do
+        [[ -d "$d" ]] || continue
+        local name
+        name="$(basename "$d")"
+        local state="$d/state"
+        local branch="?" overlay="none" created="?"
+
+        if [[ -f "$state" ]]; then
+            branch="$(grep '^SESS_BRANCH=' "$state" | cut -d= -f2)"
+            overlay="$(grep '^SESS_OVERLAY=' "$state" | cut -d= -f2)"
+            created="$(grep '^SESS_CREATED=' "$state" | cut -d= -f2)"
+            created="${created%%+*}"
+        fi
+
+        local socket="$d/socket"
+        local status="inactive"
+        [[ -S "$socket" ]] && status="active"
+
+        printf '%-20s %-15s %-10s %-20s %s\n' "$name" "$branch" "$overlay" "$created" "$status"
+    done
+}
+
+# ─── cmd: rm ─────────────────────────────────────────────────────────────────
+cmd_rm() {
+    local session="${1:?Usage: sess rm <name>}"
+    local sdir
+    sdir="$(_sess_dir "$session")"
+
+    [[ -d "$sdir" ]] || die "Session '$session' does not exist."
+
+    # Unmount any overlays first
+    if _is_linux; then
+        for odir in "$sdir/overlays"/*/; do
+            [[ -d "$odir" ]] || continue
+            local merged="$odir/merged"
+            if mountpoint -q "$merged" 2>/dev/null; then
+                sudo umount "$merged" 2>/dev/null || true
+            fi
+        done
+    fi
+
+    _log_event "$session" "removed"
+    _mark_inactive "$session"
+    rm -rf "$sdir"
+    info "Session '$session' removed."
+}
+
+# ─── cmd: overlay ────────────────────────────────────────────────────────────
+cmd_overlay() {
+    local subcmd="${1:?Usage: sess overlay <new|switch|ls|rm> ...}"
+    shift
+
+    case "$subcmd" in
+        new)    overlay_new "$@" ;;
+        switch) overlay_switch "$@" ;;
+        ls)     overlay_ls "$@" ;;
+        rm)     overlay_rm "$@" ;;
+        *)      die "Unknown overlay subcommand: $subcmd. Use: new, switch, ls, rm" ;;
+    esac
+}
+
+overlay_new() {
+    local session="${1:?Usage: sess overlay new <session> <overlay-name> [branch]}"
+    local overlay="${2:?Usage: sess overlay new <session> <overlay-name> [branch]}"
+    local branch="${3:-}"
+
+    _is_linux || {
+        # macOS fallback: APFS copy-on-write clone
+        _is_macos || die "Overlays require Linux (OverlayFS) or macOS (APFS). Current OS: $(uname -s)"
+        overlay_new_macos "$session" "$overlay" "$branch"
+        return
+    }
+
+    local sdir
+    sdir="$(_sess_dir "$session")"
+    [[ -d "$sdir" ]] || die "Session '$session' does not exist."
+
+    local odir="$sdir/overlays/$overlay"
+    [[ -d "$odir" ]] && die "Overlay '$overlay' already exists in session '$session'."
+
+    # Determine branch: default to the repo's default branch
+    if [[ -z "$branch" ]]; then
+        source "$(_state "$session")"
+        local repo_cwd="${SESS_CWD:-$(pwd)}"
+        local git_root
+        git_root="$(git -C "$repo_cwd" rev-parse --show-toplevel 2>/dev/null || echo "")"
+        if [[ -n "$git_root" ]]; then
+            branch="$(git -C "$git_root" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || echo main)"
+        else
+            branch="main"
+        fi
+    fi
+
+    # Pull latest on the default branch
+    source "$(_state "$session")"
+    local repo_cwd="${SESS_CWD:-$(pwd)}"
+    local git_root
+    git_root="$(git -C "$repo_cwd" rev-parse --show-toplevel 2>/dev/null)" || die "Not in a git repository."
+
+    info "Pulling latest '$branch'..."
+    git -C "$git_root" fetch origin "$branch" 2>/dev/null || true
+    git -C "$git_root" checkout "$branch" 2>/dev/null || true
+    git -C "$git_root" pull origin "$branch" 2>/dev/null || true
+
+    # Create overlay directories
+    mkdir -p "$odir/upper" "$odir/work" "$odir/merged"
+
+    # Mount OverlayFS
+    local lower="$git_root"
+    local upper="$odir/upper"
+    local work="$odir/work"
+    local merged="$odir/merged"
+
+    sudo mount -t overlay "sess-$session-$overlay" \
+        -o "lowerdir=$lower,upperdir=$upper,workdir=$work" \
+        "$merged" || die "OverlayFS mount failed. Run 'sess doctor' to check prerequisites."
+
+    # Checkout the branch inside the overlay
+    git -C "$merged" checkout "$branch" 2>/dev/null || true
+
+    # Update session state to point to this overlay
+    sed -i "s/^SESS_OVERLAY=.*/SESS_OVERLAY=$overlay/" "$(_state "$session")"
+
+    _log_event "$session" "overlay new: $overlay (branch: $branch)"
+
+    info "Overlay '$overlay' created and mounted."
+    info "  Branch:  $branch"
+    info "  Path:    $merged"
+    info ""
+    info "Switch to it:  sess overlay switch $session $overlay"
+}
+
+# macOS fallback: APFS copy-on-write clone
+overlay_new_macos() {
+    local session="${1:?Usage: sess overlay new <session> <overlay-name> [branch]}"
+    local overlay="${2:?Usage: sess overlay new <session> <overlay-name> [branch]}"
+    local branch="${3:-}"
+
+    local sdir
+    sdir="$(_sess_dir "$session")"
+    [[ -d "$sdir" ]] || die "Session '$session' does not exist."
+
+    local odir="$sdir/overlays/$overlay"
+    [[ -d "$odir" ]] && die "Overlay '$overlay' already exists in session '$session'."
+
+    # Determine branch
+    source "$(_state "$session")"
+    local repo_cwd="${SESS_CWD:-$(pwd)}"
+    local git_root
+    git_root="$(git -C "$repo_cwd" rev-parse --show-toplevel 2>/dev/null || echo "")"
+    if [[ -z "$git_root" ]]; then
+        die "Not in a git repository."
+    fi
+
+    if [[ -z "$branch" ]]; then
+        branch="$(git -C "$git_root" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || echo main)"
+    fi
+
+    # Pull latest
+    info "Pulling latest '$branch'..."
+    git -C "$git_root" fetch origin "$branch" 2>/dev/null || true
+    git -C "$git_root" checkout "$branch" 2>/dev/null || true
+    git -C "$git_root" pull origin "$branch" 2>/dev/null || true
+
+    # Create APFS clone (copy-on-write, instant, no extra disk for unchanged files)
+    local merged="$odir/merged"
+    mkdir -p "$odir"
+
+    if cp -cR "$git_root" "$merged" 2>/dev/null; then
+        info "Overlay '$overlay' created (APFS clone)."
+    else
+        # Fallback to regular copy if cp -c not supported
+        info "APFS clone not available, using full copy..."
+        cp -R "$git_root" "$merged"
+        info "Overlay '$overlay' created (full copy)."
+    fi
+
+    # Checkout branch inside the clone
+    git -C "$merged" checkout "$branch" 2>/dev/null || true
+
+    # Update session state
+    sed -i "s/^SESS_OVERLAY=.*/SESS_OVERLAY=$overlay/" "$(_state "$session")"
+
+    _log_event "$session" "overlay new (macOS): $overlay (branch: $branch)"
+
+    info "  Branch:  $branch"
+    info "  Path:    $merged"
+}
+
+overlay_switch() {
+    local session="${1:?Usage: sess overlay switch <session> <overlay-name>}"
+    local overlay="${2:?Usage: sess overlay switch <session> <overlay-name>}"
+
+    local sdir
+    sdir="$(_sess_dir "$session")"
+    [[ -d "$sdir" ]] || die "Session '$session' does not exist."
+
+    local odir="$sdir/overlays/$overlay"
+    [[ -d "$odir" ]] || die "Overlay '$overlay' does not exist in session '$session'."
+
+    # Verify mount/clone exists
+    if _is_linux; then
+        mountpoint -q "$odir/merged" 2>/dev/null || die "Overlay '$overlay' is not mounted."
+    else
+        [[ -d "$odir/merged" ]] || die "Overlay '$overlay' directory not found."
+    fi
+
+    # Update session state
+    sed -i "s/^SESS_OVERLAY=.*/SESS_OVERLAY=$overlay/" "$(_state "$session")"
+
+    _log_event "$session" "overlay switch: $overlay"
+
+    info "Switched to overlay '$overlay'."
+    info "Path: $odir/merged"
+    info ""
+    info "Detach and reattach to update cwd:"
+    info "  Ctrl+\\  (detach)"
+    info "  sess $session  (reattach)"
+}
+
+overlay_ls() {
+    local session="${1:?Usage: sess overlay ls <session>}"
+
+    local sdir
+    sdir="$(_sess_dir "$session")"
+    [[ -d "$sdir" ]] || die "Session '$session' does not exist."
+
+    local odir="$sdir/overlays"
+    [[ -d "$odir" ]] || { info "No overlays in session '$session'."; return 0; }
+
+    local current
+    current="$(grep '^SESS_OVERLAY=' "$(_state "$session")" | cut -d= -f2)"
+
+    for d in "$odir"/*/; do
+        [[ -d "$d" ]] || continue
+        local oname
+        oname="$(basename "$d")"
+        local merged="$d/merged"
+        local marker=""
+        [[ "$oname" == "$current" ]] && marker=" <- current"
+
+        if _is_linux && mountpoint -q "$merged" 2>/dev/null; then
+            local branch
+            branch="$(git -C "$merged" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "?")"
+            printf '%-20s %-15s %-10s%s\n' "$oname" "$branch" "mounted" "$marker"
+        elif [[ -d "$merged" ]]; then
+            local branch
+            branch="$(git -C "$merged" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "?")"
+            printf '%-20s %-15s %-10s%s\n' "$oname" "$branch" "clone" "$marker"
+        else
+            printf '%-20s %-15s %-10s%s\n' "$oname" "?" "missing" "$marker"
+        fi
+    done
+}
+
+overlay_rm() {
+    local session="${1:?Usage: sess overlay rm <session> <overlay-name>}"
+    local overlay="${2:?Usage: sess overlay rm <session> <overlay-name>}"
+
+    local sdir
+    sdir="$(_sess_dir "$session")"
+    [[ -d "$sdir" ]] || die "Session '$session' does not exist."
+
+    local odir="$sdir/overlays/$overlay"
+    [[ -d "$odir" ]] || die "Overlay '$overlay' does not exist in session '$session'."
+
+    # Unmount if mounted (Linux)
+    if _is_linux && mountpoint -q "$odir/merged" 2>/dev/null; then
+        sudo umount "$odir/merged" || die "Failed to unmount overlay '$overlay'."
+    fi
+
+    # If this was the current overlay, reset to none
+    local current
+    current="$(grep '^SESS_OVERLAY=' "$(_state "$session")" | cut -d= -f2)"
+    if [[ "$current" == "$overlay" ]]; then
+        sed -i "s/^SESS_OVERLAY=.*/SESS_OVERLAY=none/" "$(_state "$session")"
+    fi
+
+    rm -rf "$odir"
+    _log_event "$session" "overlay rm: $overlay"
+    info "Overlay '$overlay' removed."
+}
+
+# ─── cmd: diff ───────────────────────────────────────────────────────────────
+cmd_diff() {
+    local session="${1:?Usage: sess diff <name> [path]}"
+    local path="${2:-}"
+
+    local sdir
+    sdir="$(_sess_dir "$session")"
+    [[ -d "$sdir" ]] || die "Session '$session' does not exist."
+
+    source "$(_state "$session")"
+
+    if [[ "${SESS_OVERLAY:-none}" == "none" ]]; then
+        die "No active overlay in session '$session'. Create one: sess overlay new $session <name>"
+    fi
+
+    local merged="$sdir/overlays/$SESS_OVERLAY/merged"
+    [[ -d "$merged" ]] || die "Overlay '$SESS_OVERLAY' directory not found."
+
+    _log_event "$session" "diff${path:+ (path: $path)}"
+
+    if [[ -n "$path" ]]; then
+        git -C "$merged" diff -- "$path"
+    else
+        git -C "$merged" diff
+    fi
+}
+
+# ─── cmd: log ────────────────────────────────────────────────────────────────
+cmd_log() {
+    local session="${1:?Usage: sess log <name> [N]}"
+    local lines="${2:-20}"
+
+    local sdir
+    sdir="$(_sess_dir "$session")"
+    [[ -d "$sdir" ]] || die "Session '$session' does not exist."
+
+    local log
+    log="$(_log_file "$session")"
+
+    if [[ ! -f "$log" ]]; then
+        info "No activity log for session '$session'."
+        return 0
+    fi
+
+    info "Activity log for '$session':"
+    tail -n "$lines" "$log"
+}
+
+# ─── cmd: path ───────────────────────────────────────────────────────────────
+cmd_path() {
+    local session="${1:?Usage: sess path <name>}"
+
+    local sdir
+    sdir="$(_sess_dir "$session")"
+    [[ -d "$sdir" ]] || die "Session '$session' does not exist."
+
+    source "$(_state "$session")"
+
+    if [[ "${SESS_OVERLAY:-none}" == "none" ]]; then
+        echo "${SESS_CWD:-$(pwd)}"
+    else
+        echo "$sdir/overlays/$SESS_OVERLAY/merged"
+    fi
+}
+
+# ─── cmd: status ─────────────────────────────────────────────────────────────
+cmd_status() {
+    local session="${1:-}"
+
+    if [[ -z "$session" ]]; then
+        info "sess $VERSION"
+        info "State dir: $SESS_DIR"
+        if _is_linux; then
+            info "Platform: Linux (OverlayFS available)"
+        elif _is_macos; then
+            info "Platform: macOS (APFS clones available)"
+        else
+            info "Platform: $(uname -s) (no overlay support)"
+        fi
+
+        local count=0
+        for _ in "$SESS_DIR/sessions"/*/; do
+            [[ -d "$_" ]] && count=$((count + 1)) || true
+        done
+        info "Sessions:  $count"
+
+        # Show active sessions
+        local active_file="$SESS_DIR/active-sessions"
+        if [[ -f "$active_file" ]] && [[ -s "$active_file" ]]; then
+            info "Previously active:"
+            while IFS= read -r name; do
+                info "  $name"
+            done < "$active_file"
+        fi
+        return 0
+    fi
+
+    local sdir
+    sdir="$(_sess_dir "$session")"
+    [[ -d "$sdir" ]] || die "Session '$session' does not exist."
+
+    source "$(_state "$session")"
+
+    info "Session: $session"
+    info "  Branch:  ${SESS_BRANCH:-?}"
+    info "  Overlay: ${SESS_OVERLAY:-none}"
+    info "  CWD:     ${SESS_CWD:-?}"
+    info "  Created: ${SESS_CREATED:-?}"
+
+    local socket="$sdir/socket"
+    if [[ -S "$socket" ]]; then
+        info "  Status:  active (dtach socket exists)"
+    else
+        info "  Status:  inactive"
+    fi
+
+    # Show overlays if any
+    local odir="$sdir/overlays"
+    if [[ -d "$odir" ]]; then
+        info ""
+        info "Overlays:"
+        for d in "$odir"/*/; do
+            [[ -d "$d" ]] || continue
+            local oname
+            oname="$(basename "$d")"
+            local marker=""
+            [[ "$oname" == "${SESS_OVERLAY:-none}" ]] && marker=" <- current"
+            if _is_linux && mountpoint -q "$d/merged" 2>/dev/null; then
+                local branch
+                branch="$(git -C "$d/merged" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "?")"
+                info "  $oname ($branch, mounted)$marker"
+            elif [[ -d "$d/merged" ]]; then
+                local branch
+                branch="$(git -C "$d/merged" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "?")"
+                info "  $oname ($branch, clone)$marker"
+            else
+                info "  $oname (unmounted)$marker"
+            fi
+        done
+    fi
+
+    # Show last 5 log entries
+    local log
+    log="$(_log_file "$session")"
+    if [[ -f "$log" ]]; then
+        info ""
+        info "Last 5 events:"
+        tail -n 5 "$log" | while IFS= read -r line; do
+            info "  $line"
+        done
+    fi
+}
+
+# ─── cmd: up ─────────────────────────────────────────────────────────────────
+# Reconnect to previously active sessions.
+# On macOS: if a remote is configured, SSH to the VM first.
+# If local sessions exist, reattach to each one.
+# If remote sessions exist, open terminal tabs for each.
+cmd_up() {
+    local active_file="$SESS_DIR/active-sessions"
+
+    if [[ ! -f "$active_file" ]] || [[ ! -s "$active_file" ]]; then
+        info "No previously active sessions."
+        info "Start one with: sess new <name>"
+        return 0
+    fi
+
+    # Check for remote config
+    local remote_host
+    remote_host="$(_remote_get "default" "host" 2>/dev/null || true)"
+
+    if [[ -n "$remote_host" ]]; then
+        # Remote mode: SSH to VM and reconnect to each active session
+        _remote_up "$remote_host"
+    else
+        # Local mode: reattach to each session in terminal tabs
+        _local_up
+    fi
+}
+
+_local_up() {
+    local active_file="$SESS_DIR/active-sessions"
+    local sessions=()
+    while IFS= read -r name; do
+        # Verify session still exists
+        [[ -d "$(_sess_dir "$name")" ]] || continue
+        sessions+=("$name")
+    done < "$active_file"
+
+    if [[ ${#sessions[@]} -eq 0 ]]; then
+        info "No active sessions to reconnect to."
+        return 0
+    fi
+
+    info "Reconnecting to ${#sessions[@]} session(s)..."
+
+    for session in "${sessions[@]}"; do
+        if _is_macos; then
+            # macOS: open in Terminal.app tabs
+            osascript -e "tell application \"Terminal\"" \
+                -e "activate" \
+                -e "set currentTab to do script \"sess $session\"" \
+                -e "end tell" 2>/dev/null || {
+                # Fallback: just attach in current terminal
+                info "Could not open Terminal tab for '$session'. Attaching here..."
+                cmd_attach "$session"
+            }
+        else
+            # Linux: attach in current terminal (user can use tmux/screen for multiple)
+            info "Attaching to '$session'..."
+            cmd_attach "$session"
+        fi
+    done
+}
+
+# ─── cmd: ssh ────────────────────────────────────────────────────────────────
+# Just SSH to the configured remote. No session, no attach.
+cmd_ssh() {
+    local remote_host
+    remote_host="$(_remote_get "default" "host" 2>/dev/null || true)"
+    [[ -n "$remote_host" ]] || die "No remote configured. Use: sess remote add <user@host>"
+
+    # Pass any extra args to ssh
+    exec ssh "$remote_host" "$@"
+}
+
+# ─── cmd: code ────────────────────────────────────────────────────────────────
+# Open Cursor/VS Code on laptop, connected to the session's directory on the VM.
+# Works via Remote-SSH. On demand, not automatic.
+cmd_code() {
+    local session="${1:?Usage: sess code <name>}"
+    local sdir
+    sdir="$(_sess_dir "$session")"
+    [[ -d "$sdir" ]] || die "Session '$session' does not exist."
+
+    source "$(_state "$session")"
+    local cwd="${SESS_CWD:-$(pwd)}"
+
+    # If there's an active overlay, use its path
+    if [[ "${SESS_OVERLAY:-none}" != "none" ]]; then
+        local overlay_path="$sdir/overlays/$SESS_OVERLAY/merged"
+        if [[ -d "$overlay_path" ]]; then
+            cwd="$overlay_path"
+        fi
+    fi
+
+    local remote_host
+    remote_host="$(_remote_get "default" "host" 2>/dev/null || true)"
+
+    # Determine the editor command
+    local editor_cmd="${SESS_EDITOR:-}"
+    if [[ -z "$editor_cmd" ]]; then
+        if command -v cursor &>/dev/null; then
+            editor_cmd="cursor"
+        elif command -v code &>/dev/null; then
+            editor_cmd="code"
+        else
+            die "Neither 'cursor' nor 'code' found. Install one or set SESS_EDITOR."
+        fi
+    fi
+
+    if [[ -n "$remote_host" ]]; then
+        # Remote: open editor with SSH remote URI
+        # vscode://vscode-remote/ssh-remote+<host><path>
+        local uri="vscode-remote://ssh-remote+${remote_host}${cwd}"
+        _log_event "$session" "code (remote: $editor_cmd)"
+        info "Opening $editor_cmd on $remote_host:$cwd"
+        "$editor_cmd" --remote "$remote_host" "$cwd" 2>/dev/null || \
+            "$editor_cmd" "$uri" 2>/dev/null || \
+            "$editor_cmd" "$cwd"
+    else
+        # Local: just open the directory
+        _log_event "$session" "code (local: $editor_cmd)"
+        info "Opening $editor_cmd at $cwd"
+        "$editor_cmd" "$cwd"
+    fi
+}
+
+# ─── cmd: remote ─────────────────────────────────────────────────────────────
+cmd_remote() {
+    local subcmd="${1:?Usage: sess remote <add|ls|rm> ...}"
+    shift
+
+    case "$subcmd" in
+        add)  remote_add "$@" ;;
+        rm|remove) remote_rm "$@" ;;
+        ls)   remote_ls "$@" ;;
+        *)    die "Unknown remote subcommand: $subcmd. Use: add, ls, rm" ;;
+    esac
+}
+
+remote_add() {
+    local name="${1:-default}"
+    local host="${2:?Usage: sess remote add [name] <user@host>}"
+
+    _remote_set "$name" "host" "$host"
+
+    # Test the connection
+    info "Testing SSH connection to $host..."
+    if ssh -o ConnectTimeout=5 -o BatchMode=yes "$host" "echo ok" &>/dev/null; then
+        info "SSH connection to $host works."
+    else
+        info "SSH connection to $host failed. Make sure you have key-based auth set up."
+        info "  ssh-copy-id $host"
+    fi
+
+    # Install sess on the remote if needed
+    info "Checking if sess is installed on remote..."
+    if ssh "$host" "command -v sess" &>/dev/null; then
+        info "sess is available on $host."
+    else
+        info "sess is not installed on $host."
+        info "Install it by copying the script:"
+        info "  scp $(which sess) $host:~/bin/sess"
+    fi
+
+    info "Remote '$name' configured: $host"
+}
+
+remote_rm() {
+    local name="${1:-default}"
+    local cfg
+    cfg="$(_remote_config)"
+    [[ -f "$cfg" ]] || { info "No remotes configured."; return 0; }
+
+    local tmp
+    tmp="$(mktemp)"
+    grep -v "^${name}\." "$cfg" > "$tmp" 2>/dev/null || true
+    mv "$tmp" "$cfg"
+
+    info "Remote '$name' removed."
+}
+
+remote_ls() {
+    local cfg
+    cfg="$(_remote_config)"
+    if [[ ! -f "$cfg" ]] || [[ ! -s "$cfg" ]]; then
+        info "No remotes configured. Use: sess remote add <user@host>"
+        return 0
+    fi
+
+    info "Configured remotes:"
+    while IFS='=' read -r key value; do
+        local name="${key%%.*}"
+        local prop="${key#*.}"
+        info "  $name.$prop = $value"
+    done < "$cfg"
+}
+
+# ─── Remote attach (SSH wrapper) ────────────────────────────────────────────
+cmd_remote_attach() {
+    local session="$1"
+    local remote_host
+    remote_host="$(_remote_get "default" "host" 2>/dev/null || true)"
+    [[ -n "$remote_host" ]] || die "No remote configured. Use: sess remote add <user@host>"
+
+    # SSH into the VM and attach to the session
+    ssh -t "$remote_host" "sess $session"
+}
+
+# ─── Remote up: reconnect to all active sessions on VM ──────────────────────
+_remote_up() {
+    local remote_host="$1"
+    local active_file="$SESS_DIR/active-sessions"
+
+    [[ -f "$active_file" ]] || { info "No previously active sessions."; return 0; }
+
+    # Read active sessions
+    local sessions=()
+    while IFS= read -r name; do
+        sessions+=("$name")
+    done < "$active_file"
+
+    if [[ ${#sessions[@]} -eq 0 ]]; then
+        info "No active sessions to reconnect to."
+        return 0
+    fi
+
+    # Check which sessions still exist on the remote
+    local alive_sessions=()
+    for session in "${sessions[@]}"; do
+        if ssh "$remote_host" "test -d ~/.sess/sessions/$session" 2>/dev/null; then
+            alive_sessions+=("$session")
+        fi
+    done
+
+    if [[ ${#alive_sessions[@]} -eq 0 ]]; then
+        info "No active sessions found on $remote_host."
+        return 0
+    fi
+
+    info "Reconnecting to ${#alive_sessions[@]} session(s) on $remote_host..."
+
+    for session in "${alive_sessions[@]}"; do
+        if _is_macos; then
+            # macOS: open Terminal.app tab with SSH + sess attach
+            osascript -e "tell application \"Terminal\"" \
+                -e "activate" \
+                -e "set currentTab to do script \"ssh -t $remote_host 'sess $session'\"" \
+                -e "end tell" 2>/dev/null || {
+                info "Could not open Terminal tab for '$session'."
+            }
+        else
+            # Linux: attach in current terminal
+            ssh -t "$remote_host" "sess $session"
+        fi
+    done
+}
+
+# ─── cmd: doctor ─────────────────────────────────────────────────────────────
+cmd_doctor() {
+    local ok=true
+
+    # Platform
+    if _is_linux; then
+        info "Platform: Linux (OverlayFS available)"
+    elif _is_macos; then
+        info "Platform: macOS (APFS clones available for overlays)"
+    else
+        info "Platform: $(uname -s) (no overlay support)"
+    fi
+
+    # dtach
+    if command -v dtach &>/dev/null; then
+        local dtach_ver
+        dtach_ver="$(dtach --version 2>&1 | head -1 || true)"
+        info "dtach:    ${dtach_ver:-installed}"
+    elif command -v abduco &>/dev/null; then
+        info "abduco:   installed (dtach not found, using abduco)"
+    else
+        info "Neither dtach nor abduco found."
+        info "  Install: apt install dtach / brew install dtach"
+        ok=false
+    fi
+
+    # git
+    if command -v git &>/dev/null; then
+        info "git:      $(git --version)"
+    else
+        info "git:      NOT installed"
+        ok=false
+    fi
+
+    # bash
+    if command -v bash &>/dev/null; then
+        info "bash:     $(bash --version | head -1)"
+    else
+        info "bash:     NOT installed"
+        ok=false
+    fi
+
+    # OverlayFS / APFS
+    if _is_linux; then
+        if lsmod 2>/dev/null | grep -q overlay || grep -q 'overlay' /proc/filesystems 2>/dev/null; then
+            info "OverlayFS: available"
+        else
+            info "OverlayFS: not loaded (try: sudo modprobe overlay)"
+            ok=false
+        fi
+
+        if sudo -n true 2>/dev/null || [[ "$(id -u)" -eq 0 ]]; then
+            info "Mount:    root/sudo available"
+        else
+            info "Mount:    need sudo for OverlayFS mounts"
+        fi
+    elif _is_macos; then
+        # Check if filesystem is APFS (supports COW clones)
+        local fs_type
+        fs_type="$(diskutil info / 2>/dev/null | grep 'Type (Bundle):' | awk '{print $NF}' || echo "unknown")"
+        if [[ "$fs_type" == "apfs" ]]; then
+            info "APFS:     available (COW clones supported)"
+        else
+            info "APFS:     not detected (COW clones may not work)"
+        fi
+    fi
+
+    # SSH (for remote sessions)
+    if command -v ssh &>/dev/null; then
+        info "ssh:      $(ssh -V 2>&1 | head -1 || echo 'installed')"
+    else
+        info "ssh:      NOT installed (needed for remote sessions)"
+        ok=false
+    fi
+
+    # Check remote config
+    local remote_host
+    remote_host="$(_remote_get "default" "host" 2>/dev/null || true)"
+    if [[ -n "$remote_host" ]]; then
+        info "Remote:   $remote_host"
+        if ssh -o ConnectTimeout=5 -o BatchMode=yes "$remote_host" "echo ok" &>/dev/null; then
+            info "Remote SSH: working"
+        else
+            info "Remote SSH: connection failed (key-based auth required)"
+            ok=false
+        fi
+    else
+        info "Remote:   not configured (use: sess remote add <user@host>)"
+    fi
+
+    info ""
+    if $ok; then
+        info "All prerequisites met."
+    else
+        info "Some prerequisites missing. See above."
+    fi
+}
+
+# ─── cmd: connections ────────────────────────────────────────────────────────
+# Show connection log for a session: detach, exit, drop events.
+cmd_connections() {
+    local session="${1:?Usage: sess connections <name>}"
+    local lines="${2:-20}"
+
+    local sdir
+    sdir="$(_sess_dir "$session")"
+    [[ -d "$sdir" ]] || die "Session '$session' does not exist."
+
+    local conn_log
+    conn_log="$sdir/connections"
+
+    if [[ ! -f "$conn_log" ]]; then
+        info "No connection log for session '$session'."
+        return 0
+    fi
+
+    info "Connection log for '$session':"
+    tail -n "$lines" "$conn_log"
+}
+
+# ─── cmd: help ───────────────────────────────────────────────────────────────
+cmd_help() {
+    cat <<'HELP'
+sess — dtach sessions with overlay isolation
+
+USAGE:
+  sess new <name> [branch]        Create session + auto-attach
+  sess <name>                     Attach to existing session
+                                  Ctrl+\ to detach
+
+  sess ls                         List sessions
+  sess rm <name>                  Remove session (unmounts overlays)
+
+  sess overlay new <s> <ov> [br]  Create overlay (from latest default branch)
+  sess overlay switch <s> <ov>    Switch active overlay in session
+  sess overlay ls <s>             List overlays in session
+  sess overlay rm <s> <ov>        Remove overlay (unmounts first)
+
+  sess diff <name> [path]         Git diff in session's overlay
+  sess log <name> [N]             Activity log (default: last 20)
+  sess connections <name> [N]     Connection log (detach/exit/drop)
+  sess path <name>                Print overlay/cwd path (for scripts)
+  sess code <name>                Open Cursor/VS Code for session
+  sess status [name]              Session info or overall status
+
+  sess ssh [args]                 SSH to configured remote VM
+  sess up                         Reconnect to previously active sessions
+  sess remote add [name] <host>  Configure a remote VM for sessions
+  sess remote ls                  List configured remotes
+  sess remote rm [name]           Remove a remote
+
+  sess doctor                     Check prerequisites
+  sess help                       This help
+  sess version                    Show version
+
+CONNECTION LOG:
+  Every time a session ends, sess records how it ended:
+    detach  — Ctrl+\ (you intentionally detached)
+    exit    — you typed exit or ctrl-d in the shell
+    drop    — SSH timeout, network failure, laptop sleep
+
+  View with:  sess connections <name>
+
+AUTO-RECONNECT:
+  When you close your laptop, SSH drops but sessions survive on the VM.
+  When you open it, run: sess up
+  This reconnects to all sessions you had active before.
+
+  For fully automatic reconnect on wake, add to ~/.wakeup:
+    sess up
+
+STATUS BAR:
+  Inside a session, the bottom line shows:
+    session | overlay | branch | ~/path     HH:MM
+  No colors. Plain text. Updated on every prompt.
+
+OVERLAYS:
+  Linux:  OverlayFS mount (instant, delta-only)
+  macOS:  APFS COW clone (instant on APFS, full copy semantics)
+
+REMOTE SESSIONS:
+  sess remote add default user@dev-vm    # one-time setup
+  sess ssh                                # just SSH to the VM
+  sess new feature-auth                   # creates on remote
+  sess feature-auth                       # SSHes to remote, attaches
+  sess code feature-auth                  # opens Cursor/VS Code on laptop
+  sess up                                 # reconnects all active on wake
+
+EDITOR:
+  sess code <name>                        # opens Cursor/VS Code
+  Cursor is preferred if installed, falls back to VS Code code.
+  For remote sessions, opens via Remote-SSH extension.
+  Override with: SESS_EDITOR=code sess code <name>
+
+DETACH/REATTACH:
+  Ctrl+\    detach from session (session persists)
+  sess <name>   reattach
+  sess up        reconnect all previously active sessions
+
+ENVIRONMENT:
+  SESS_DIR     State directory (default: ~/.sess)
+  SESS_SESSION  Set inside sessions (session name)
+  SESS_BRANCH   Set inside sessions (branch)
+  SESS_OVERLAY  Set inside sessions (current overlay name)
+HELP
+}
+
+# ─── Main dispatch ───────────────────────────────────────────────────────────
+case "${1:-help}" in
+    new)              shift; cmd_new "$@" ;;
+    rm|remove)        shift; cmd_rm "$@" ;;
+    ls|list)          shift; cmd_ls "$@" ;;
+    attach)           shift; cmd_attach "$@" ;;
+    up)               shift; cmd_up "$@" ;;
+    ssh)              shift; cmd_ssh "$@" ;;
+    code)             shift; cmd_code "$@" ;;
+    overlay)           shift; cmd_overlay "$@" ;;
+    diff)             shift; cmd_diff "$@" ;;
+    log)              shift; cmd_log "$@" ;;
+    connections|conn)  shift; cmd_connections "$@" ;;
+    path)             shift; cmd_path "$@" ;;
+    status)           shift; cmd_status "$@" ;;
+    remote)           shift; cmd_remote "$@" ;;
+    doctor)           shift; cmd_doctor "$@" ;;
+    help|--help|-h)   cmd_help ;;
+    version|--version|-v) info "sess $VERSION" ;;
+    *)
+        # If arg matches an existing session, attach to it
+        if [[ -d "$(_sess_dir "$1")" ]]; then
+            cmd_attach "$1"
+        else
+            die "Unknown command: $1. Run 'sess help' for usage."
+        fi
+        ;;
+esac
