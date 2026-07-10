@@ -101,17 +101,25 @@ _sess_title() {
     printf '\033]2;sess:%s [%s] %s\033\\' "${SESS_SESSION:-?}" "$_branch" "${SESS_OVERLAY:-none}"
 }
 
-# Hook into PROMPT_COMMAND
-if [[ -n "${PROMPT_COMMAND:-}" ]]; then
-    PROMPT_COMMAND="${PROMPT_COMMAND%;};_sess_bar;_sess_title"
+# Hook into shell — bash uses PROMPT_COMMAND, zsh uses precmd hooks
+if [[ -n "${ZSH_VERSION:-}" ]]; then
+    autoload -Uz add-zsh-hook 2>/dev/null || true
+    add-zsh-hook precmd _sess_bar
+    add-zsh-hook precmd _sess_title
+    # Update on cd in zsh
+    chpwd() { _sess_bar; }
 else
-    PROMPT_COMMAND="_sess_bar; _sess_title"
+    # bash
+    if [[ -n "${PROMPT_COMMAND:-}" ]]; then
+        PROMPT_COMMAND="${PROMPT_COMMAND%;};_sess_bar;_sess_title"
+    else
+        PROMPT_COMMAND="_sess_bar; _sess_title"
+    fi
+    export PROMPT_COMMAND
+    # Update on cd
+    _cd() { \cd "$@"; _sess_bar; }
+    alias cd='_cd' 2>/dev/null || true
 fi
-export PROMPT_COMMAND
-
-# Update on cd
-_cd() { \cd "$@"; _sess_bar; }
-alias cd='_cd' 2>/dev/null || true
 HOOK
 }
 
