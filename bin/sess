@@ -237,7 +237,35 @@ cmd_attach() {
         fi
     fi
 
-    local shell_cmd="SESS_SESSION='$session' SESS_BRANCH='$SESS_BRANCH' SESS_OVERLAY='${SESS_OVERLAY:-none}' SESS_DIR='$SESS_DIR'; cd '$cwd' 2>/dev/null || cd; source '$hook_path'; exec \${SHELL:-/bin/bash}"
+    # Write a per-session rc file that sources the hook then sources the user's real rc.
+    # This lets us run an interactive shell ($SHELL -i) so PROMPT_COMMAND / precmd fire.
+    local init_path="$sdir/init.sh"
+    local user_shell="${SHELL:-/bin/bash}"
+    cat > "$init_path" <<INIT
+export SESS_SESSION='$session'
+export SESS_BRANCH='${SESS_BRANCH:-main}'
+export SESS_OVERLAY='${SESS_OVERLAY:-none}'
+export SESS_DIR='$SESS_DIR'
+cd '$cwd' 2>/dev/null || cd
+source '$hook_path'
+# Source the user's real rc so their aliases/prompt still load
+if [[ -n "\${ZSH_VERSION:-}" ]]; then
+    [[ -f "\$HOME/.zshrc" ]] && source "\$HOME/.zshrc"
+else
+    [[ -f "\$HOME/.bashrc" ]] && source "\$HOME/.bashrc"
+fi
+INIT
+
+    local shell_cmd
+    if [[ "$user_shell" == *zsh ]]; then
+        shell_cmd="ZDOTDIR='$sdir' SESS_INIT='$init_path' $user_shell"
+        # Write a minimal .zshrc in the sess dir that sources our init
+        cat > "$sdir/.zshrc" <<ZSHRC
+[[ -f "\$SESS_INIT" ]] && source "\$SESS_INIT"
+ZSHRC
+    else
+        shell_cmd="ENV='$init_path' bash --rcfile '$init_path' -i"
+    fi
 
     if command -v dtach &>/dev/null; then
         local dtach_rc=0
