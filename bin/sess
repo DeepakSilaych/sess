@@ -153,6 +153,14 @@ cmd_new() {
     local session="${1:?Usage: sess new <name> [branch]}"
     local branch="${2:-}"
 
+    # If a remote is configured, create the session on the VM and attach
+    local remote_host
+    remote_host="$(_remote_get "default" "host" 2>/dev/null || true)"
+    if [[ -n "$remote_host" ]]; then
+        info "Creating session '$session' on $remote_host..."
+        exec ssh -t "$remote_host" "sess new $session${branch:+ $branch}"
+    fi
+
     local sdir
     sdir="$(_sess_dir "$session")"
 
