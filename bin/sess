@@ -1149,9 +1149,7 @@ case "${1:-help}" in
     version|--version|-v) info "sess $VERSION" ;;
     *)
         # Check local dir OR remote configured (sessions live on VM)
-        local _remote_h
-        _remote_h="$(_remote_get "default" "host" 2>/dev/null || true)"
-        if [[ -d "$(_sess_dir "$1")" ]] || [[ -n "$_remote_h" ]]; then
+        if [[ -d "$(_sess_dir "$1")" ]] || [[ -n "$(_remote_get "default" "host" 2>/dev/null || true)" ]]; then
             cmd_attach "$1"
         else
             die "Unknown command: $1. Run 'sess help' for usage."
