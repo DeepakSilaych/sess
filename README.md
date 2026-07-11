@@ -1,12 +1,12 @@
-# sess — dtach sessions with overlay isolation
+# sess — tmux sessions with overlay isolation
 
-> One tool. No worktrees. No containers. No tmux.
+> One tool. No worktrees. No containers. Sessions that survive everything.
 
 ```
 sess new feature-auth          # create + auto-attach
 ...work in session...
-Ctrl+\                         # detach (session persists)
-sess feature-auth              # reattach
+Ctrl+b d                       # detach (session persists in tmux)
+sess feature-auth              # reattach (auto-reconnects on SSH drop)
 
 sess overlay new feature-auth bugfix-1222 main   # create overlay
 sess overlay switch feature-auth bugfix-1222     # switch overlay
@@ -15,10 +15,10 @@ sess rm feature-auth           # destroy session + overlays
 
 ## What it does
 
-- **dtach** for persistence — single Unix socket per session, no server process, Ctrl+\ to detach
+- **tmux** for persistence — sessions survive SSH drops, laptop sleep, network failures; auto-reconnect loop built in
+- **Native tmux status bar** — shows session name, overlay, git branch (tracks current pane dir), time
 - **OverlayFS** for filesystem isolation (Linux) — N independent writable views of the same repo, only deltas stored
 - **APFS clones** on macOS — copy-on-write clones as overlay fallback
-- **PROMPT_COMMAND status bar** — plain text, no colors: `session | overlay | branch | ~/path     HH:MM`
 - **Connection log** — tracks how each session ended: detach, exit, or drop (SSH timeout)
 - **Remote sessions** — SSH to VM, sessions live there, auto-reconnect on wake
 
@@ -27,10 +27,10 @@ sess rm feature-auth           # destroy session + overlays
 ```
 sess new <name> [branch]        Create session + auto-attach
 sess <name>                     Attach to existing session
-                                Ctrl+\ to detach
+                                Ctrl+b d to detach
 
 sess ls                         List sessions
-sess rm <name>                  Remove session (unmounts overlays)
+sess rm <name>                  Remove session (kills tmux, unmounts overlays)
 
 sess overlay new <s> <ov> [br]  Create overlay (from latest default branch)
 sess overlay switch <s> <ov>    Switch active overlay
@@ -55,11 +55,23 @@ sess help                       Show help
 sess version                    Show version
 ```
 
+## Status bar
+
+Inside every session, the tmux status bar shows:
+
+```
+ session-name  ⬡ overlay-name          main  rfq-modular  22:18
+```
+
+- **Left**: session name + active overlay (if any)
+- **Right**: git branch of current pane directory + dir name + time
+- Updates every 3 seconds; tracks wherever you `cd` — not where the session was started
+
 ## Remote workflow (macOS → Linux VM)
 
 Sessions live on the VM. Your laptop is just a terminal.
 
-```
+```bash
 # One-time setup
 sess remote add default user@dev-vm
 
@@ -70,15 +82,10 @@ sess code feature-auth          # open Cursor via Remote-SSH
 sess ssh                        # plain SSH to VM
 
 # Close laptop. Open laptop.
-sess up                         # reconnects to all active sessions
+# → sess auto-reconnects when SSH comes back (built-in retry loop)
 ```
 
-For fully automatic reconnect on wake, add to `~/.wakeup`:
-```bash
-sleep 3 && sess up &
-```
-
-Install SleepWatcher: `brew install sleepwatcher`
+No sleepwatcher needed — `sess` loops and reconnects automatically when the network is back.
 
 ## Connection log
 
@@ -86,26 +93,26 @@ Every time a session ends, sess records how:
 
 | Event | Meaning |
 |---|---|
-| `detach` | You pressed Ctrl+\ (intentional) |
-| `exit` | You typed `exit` or Ctrl-D (intentional) |
+| `detach` | You pressed Ctrl+b d (intentional) |
+| `exit` | Shell exited (intentional) |
 | `drop` | SSH timeout, network failure, laptop sleep (unintentional) |
 
 ```bash
 sess connections feature-auth
-# 2026-07-09T14:30:00  detach (Ctrl+\)
-# 2026-07-09T15:12:00  drop (exit code 141)
-# 2026-07-09T16:45:00  exit
+# 2026-07-10T14:30:00  detach (Ctrl+b d)
+# 2026-07-10T15:12:00  drop
+# 2026-07-10T16:45:00  exit
 ```
 
 ## Platform support
 
 | Feature | macOS | Linux |
 |---|---|---|
-| dtach sessions | ✅ | ✅ |
+| tmux sessions | ✅ | ✅ |
 | Status bar | ✅ | ✅ |
+| Auto-reconnect on SSH drop | ✅ | ✅ |
 | Connection log | ✅ | ✅ |
 | Remote (SSH to VM) | ✅ | ✅ |
-| Auto-reconnect on wake | ✅ (SleepWatcher) | ✅ (systemd) |
 | `sess code` | ✅ (Cursor/VS Code) | ✅ |
 | Overlay isolation | ✅ APFS clone | ✅ OverlayFS mount |
 
@@ -127,8 +134,7 @@ Same command, different kernel primitive. Uses `cp -cR` for copy-on-write clones
 
 ```
 ~/.sess/sessions/<name>/
-├── socket              ← dtach Unix socket
-├── hook.sh             ← PROMPT_COMMAND status bar hook
+├── tmux-init.sh        ← sets SESS_* env vars, execs shell
 ├── state               ← session metadata (branch, overlay, cwd)
 ├── log                 ← activity log
 ├── connections         ← connection log (detach/exit/drop)
@@ -140,14 +146,6 @@ Same command, different kernel primitive. Uses `cp -cR` for copy-on-write clones
 ```
 
 ## Install
-
-### Via npx
-
-```bash
-npx sess-cli
-```
-
-This installs the `sess` command globally.
 
 ### From source
 
@@ -166,7 +164,7 @@ export PATH="$PWD/bin:$PATH"
 
 ### Prerequisites
 
-- **dtach** — session persistence (`apt install dtach` / `brew install dtach`)
+- **tmux** — session persistence (`apt install tmux` / `brew install tmux`)
 - **git** — version control
 - **bash** — shell
 - **OverlayFS** — filesystem isolation (Linux only, standard on modern kernels)
@@ -179,10 +177,10 @@ export PATH="$PWD/bin:$PATH"
 | Isolation | ✅ per-overlay | ⚠️ branch-level | ❌ shared FS | ✅ full | ✅ full |
 | Creation time | ~instant | ~1s | N/A | ~seconds | ~minutes |
 | Disk per session | Delta only | Full copy | 0 | Full copy | Full VM |
-| SSH persistence | ✅ dtach | ❌ | ✅ | ⚠️ manual | ✅ |
+| SSH persistence | ✅ auto-reconnect | ❌ | ✅ | ⚠️ manual | ✅ |
 | Path stability | ✅ same path | ❌ varies | N/A | ⚠️ mapping | ⚠️ mapping |
 | Agent-friendly | ✅ | ❌ | ❌ | ⚠️ | ⚠️ |
-| No extra process | ✅ | ✅ | ❌ (server) | ❌ (daemon) | ❌ (VM) |
+| Status bar | ✅ tmux native | ❌ | ✅ | ❌ | ❌ |
 
 ## License
 
