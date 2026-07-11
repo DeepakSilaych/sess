@@ -884,7 +884,11 @@ cmd_remote_attach() {
     remote_host="$(_remote_get "default" "host" 2>/dev/null || true)"
     [[ -n "$remote_host" ]] || die "No remote configured. Use: sess remote add <user@host>"
 
-    ssh -t "$remote_host" "sess $session"
+    while true; do
+        ssh -t "$remote_host" "sess $session" || true
+        printf '\n[sess] disconnected. reconnecting in 3s... (Ctrl+C to stop)\n'
+        sleep 3
+    done
 }
 
 # ─── Remote up: reconnect to all active sessions on VM ──────────────────────
