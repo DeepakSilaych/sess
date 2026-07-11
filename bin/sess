@@ -97,7 +97,7 @@ _apply_tmux_status() {
 
     # Status bar styling
     tmux set-option -t "$session" status on
-    tmux set-option -t "$session" status-interval 5
+    tmux set-option -t "$session" status-interval 3
     tmux set-option -t "$session" status-style "bg=colour235,fg=colour250"
     tmux set-option -t "$session" status-left-length 50
     tmux set-option -t "$session" status-right-length 100
@@ -143,8 +143,9 @@ INIT
         chmod +x "$init_path"
 
         tmux new-session -d -s "$session" -c "$cwd" "$init_path"
-        _apply_tmux_status "$session"
     fi
+    # Always refresh status bar on attach (covers existing sessions too)
+    _apply_tmux_status "$session"
 }
 
 # ─── cmd: new ────────────────────────────────────────────────────────────────
