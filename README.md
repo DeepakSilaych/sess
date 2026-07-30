@@ -1,3 +1,5 @@
+<div align="center">
+
 # sess — tmux session manager
 
 > One tool. No worktrees. No containers. Sessions that survive everything.
@@ -10,6 +12,8 @@ sess feature-auth              # reattach (auto-reconnects on SSH drop)
 
 sess rm feature-auth           # destroy session
 ```
+
+</div>
 
 ## What it does
 
