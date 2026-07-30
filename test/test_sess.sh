@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # test_sess.sh — Smoke tests for sess v2
-# Non-interactive tests only (dtach attach requires a terminal)
+# Non-interactive tests only (tmux attach requires a terminal)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -12,21 +12,32 @@ trap cleanup EXIT
 
 echo "Running sess v2 tests..."
 
+check() {
+    local label="$1" needle="$2" out="$3"
+    if printf '%s' "$out" | grep -q "$needle"; then
+        echo "✓ $label: OK"
+    else
+        echo "✗ $label: ERROR"
+        printf '%s\n' "$out"
+        exit 1
+    fi
+}
+
 # Syntax checks
 bash -n "$SESS" && echo "✓ sess: syntax OK" || { echo "✗ sess: syntax ERROR"; exit 1; }
 bash -c "source $SCRIPT_DIR/../etc/bash-completion/sess" && echo "✓ bash completion: OK" || { echo "✗ bash completion: ERROR"; exit 1; }
 
 # Version
-$SESS version | grep -q "sess" && echo "✓ version: OK" || { echo "✗ version: ERROR"; exit 1; }
+check "version" "sess" "$($SESS version)"
 
 # Help
-$SESS help | grep -q "overlay" && echo "✓ help (overlay): OK" || { echo "✗ help: ERROR"; exit 1; }
+check "help" "DETACH" "$($SESS help)"
 
 # Doctor
-$SESS doctor 2>&1 | grep -q "dtach" && echo "✓ doctor: OK" || { echo "✗ doctor: ERROR"; $SESS doctor 2>&1; exit 1; }
+check "doctor" "tmux" "$($SESS doctor 2>&1)"
 
 # Empty list
-$SESS ls | grep -q "No sessions" && echo "✓ empty ls: OK" || { echo "✗ empty ls: ERROR"; exit 1; }
+check "empty ls" "No sessions" "$($SESS ls)"
 
 # Create a temp git repo
 REPO="/tmp/sess-test-repo-$$"
@@ -40,30 +51,28 @@ mkdir -p "$SESS_DIR/sessions/test-session"
 cat > "$SESS_DIR/sessions/test-session/state" <<STATE
 SESS_SESSION=test-session
 SESS_BRANCH=main
-SESS_OVERLAY=none
 SESS_CWD=$REPO
 SESS_CREATED=$(date -Iseconds)
 STATE
-mkdir -p "$SESS_DIR/sessions/test-session/overlays"
 echo "$(date -Iseconds)  created (branch: main)" > "$SESS_DIR/sessions/test-session/log"
 
 # List should show our session
-$SESS ls | grep -q "test-session" && echo "✓ ls shows session: OK" || { echo "✗ ls: ERROR"; exit 1; }
+check "ls shows session" "test-session" "$($SESS ls)"
 
 # Status
-$SESS status test-session | grep -q "test-session" && echo "✓ status: OK" || { echo "✗ status: ERROR"; exit 1; }
+check "status" "test-session" "$($SESS status test-session)"
 
-# Path (no overlay)
-$SESS path test-session | grep -q "sess-test-repo" && echo "✓ path: OK" || { echo "✗ path: ERROR"; exit 1; }
+# Path
+check "path" "sess-test-repo" "$($SESS path test-session)"
 
 # Log
-$SESS log test-session | grep -q "created" && echo "✓ log: OK" || { echo "✗ log: ERROR"; exit 1; }
+check "log" "created" "$($SESS log test-session)"
 
 # Remove
 $SESS rm test-session && echo "✓ rm: OK" || { echo "✗ rm: ERROR"; exit 1; }
 
 # Verify removed
-$SESS ls | grep -q "No sessions" && echo "✓ removed: OK" || { echo "✗ removed: ERROR"; exit 1; }
+check "removed" "No sessions" "$($SESS ls)"
 
 # Cleanup repo
 rm -rf "$REPO"

@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>sess — dtach sessions with overlay isolation</title>
-<meta name="description" content="One tool. No worktrees. No containers. No tmux.">
+<title>sess — tmux session manager</title>
+<meta name="description" content="sess is a tmux session manager: persistent terminal sessions that survive SSH drops, laptop sleep, and network failures, with auto-reconnect built in.">
 <style>
   :root {
     --black: #000000;
@@ -362,14 +362,14 @@
       <line x1="20" y1="42" x2="32" y2="42"/>
     </svg>
   </div>
-  <h1>dtach sessions with overlay isolation</h1>
+  <h1>tmux session manager</h1>
   <p class="tagline">
-    One tool. No worktrees. No containers. No tmux.
+    One tool. No worktrees. No containers. Sessions that survive everything.
   </p>
 
   <div class="code-block">
     <button class="copy" onclick="copyBlock(this)">Copy</button>
-    $ npx @deepaksilaych/sess
+    $ npx sess-sh
   </div>
 
   <div class="btn-row">
@@ -381,21 +381,17 @@
 <section id="features">
   <h2 class="section-title">What it does</h2>
   <p class="section-desc">
-    Persistent terminal sessions with filesystem isolation. Create a session, work inside it, detach with <code style="font-family:var(--mono);font-size:14px;background:var(--light-gray);padding:1px 6px;border-radius:4px;">Ctrl+\</code>. The session survives SSH drops, laptop sleep, and network failures.
+    Persistent terminal sessions backed by tmux. Create a session, work inside it, detach with <code style="font-family:var(--mono);font-size:14px;background:var(--light-gray);padding:1px 6px;border-radius:4px;">Ctrl+b d</code>. The session survives SSH drops, laptop sleep, and network failures.
   </p>
 
   <div class="features">
     <div class="feature">
-      <h3>dtach persistence</h3>
-      <p>Single Unix socket per session. No server process. Sessions survive anything.</p>
+      <h3>tmux persistence</h3>
+      <p>Native tmux sessions. Full tmux keybindings available. Sessions survive anything.</p>
     </div>
     <div class="feature">
-      <h3>OverlayFS isolation</h3>
-      <p>N independent writable views of the same repo. Only deltas stored. Linux kernel-native.</p>
-    </div>
-    <div class="feature">
-      <h3>APFS clones on macOS</h3>
-      <p>Same command, different kernel primitive. Copy-on-write clones — instant, isolated.</p>
+      <h3>Native status bar</h3>
+      <p>Session name, git branch, current dir, and time — right in the tmux status line.</p>
     </div>
     <div class="feature">
       <h3>Connection log</h3>
@@ -403,7 +399,7 @@
     </div>
     <div class="feature">
       <h3>Remote sessions</h3>
-      <p><code>sess remote add</code> once. Then <code>sess new</code>, <code>sess ssh</code> all go through SSH automatically.</p>
+      <p><code>sess init user@host</code> once. Then <code>sess new</code>, <code>sess ssh</code> all go through SSH automatically.</p>
     </div>
     <div class="feature">
       <h3>Auto-reconnect on wake</h3>
@@ -427,21 +423,18 @@
     </thead>
     <tbody>
       <tr><td><code>sess new &lt;name&gt;</code></td><td>Create session + auto-attach</td></tr>
-      <tr><td><code>sess &lt;name&gt;</code></td><td>Reattach (Ctrl+\ to detach)</td></tr>
+      <tr><td><code>sess &lt;name&gt;</code></td><td>Reattach (Ctrl+b d to detach)</td></tr>
       <tr><td><code>sess ls</code></td><td>List sessions</td></tr>
-      <tr><td><code>sess rm &lt;name&gt;</code></td><td>Destroy session + overlays</td></tr>
-      <tr><td><code>sess overlay new &lt;s&gt; &lt;ov&gt; [br]</code></td><td>Create overlay from latest default branch</td></tr>
-      <tr><td><code>sess overlay switch &lt;s&gt; &lt;ov&gt;</code></td><td>Switch active overlay</td></tr>
-      <tr><td><code>sess overlay ls &lt;s&gt;</code></td><td>List overlays</td></tr>
-      <tr><td><code>sess overlay rm &lt;s&gt; &lt;ov&gt;</code></td><td>Remove overlay</td></tr>
-      <tr><td><code>sess diff &lt;name&gt;</code></td><td>Git diff in overlay</td></tr>
+      <tr><td><code>sess rm &lt;name&gt;</code></td><td>Destroy session</td></tr>
+      <tr><td><code>sess diff &lt;name&gt;</code></td><td>Git diff in session directory</td></tr>
       <tr><td><code>sess log &lt;name&gt;</code></td><td>Activity log</td></tr>
       <tr><td><code>sess connections &lt;name&gt;</code></td><td>Connection log (detach/exit/drop)</td></tr>
-      <tr><td><code>sess path &lt;name&gt;</code></td><td>Print overlay path</td></tr>
+      <tr><td><code>sess path &lt;name&gt;</code></td><td>Print session's cwd</td></tr>
       <tr><td><code>sess code &lt;name&gt;</code></td><td>Open Cursor / VS Code</td></tr>
       <tr><td><code>sess ssh</code></td><td>SSH to configured VM</td></tr>
       <tr><td><code>sess up</code></td><td>Reconnect all active sessions</td></tr>
-      <tr><td><code>sess remote add [name] &lt;host&gt;</code></td><td>Configure remote VM</td></tr>
+      <tr><td><code>sess init &lt;user@host&gt; [name]</code></td><td>Install tmux+git+sess on a host, register it</td></tr>
+      <tr><td><code>sess remote add [name] &lt;host&gt;</code></td><td>Register an already-provisioned remote</td></tr>
       <tr><td><code>sess doctor</code></td><td>Check prerequisites</td></tr>
     </tbody>
   </table>
@@ -462,13 +455,6 @@
     </thead>
     <tbody>
       <tr>
-        <td>Filesystem isolation</td>
-        <td class="sess-col yes">per-overlay</td>
-        <td class="partial">branch-level</td>
-        <td class="no">shared FS</td>
-        <td class="yes">full</td>
-      </tr>
-      <tr>
         <td>Creation time</td>
         <td class="sess-col yes">instant</td>
         <td class="partial">~1s</td>
@@ -476,25 +462,18 @@
         <td class="partial">seconds</td>
       </tr>
       <tr>
-        <td>Disk per session</td>
-        <td class="sess-col yes">deltas only</td>
-        <td class="partial">full copy</td>
-        <td class="yes">0</td>
-        <td class="no">full copy</td>
-      </tr>
-      <tr>
         <td>SSH persistence</td>
-        <td class="sess-col yes">dtach</td>
+        <td class="sess-col yes">auto-reconnect</td>
         <td class="no">manual</td>
         <td class="yes">yes</td>
         <td class="partial">manual</td>
       </tr>
       <tr>
-        <td>Extra process</td>
-        <td class="sess-col yes">none</td>
-        <td class="yes">none</td>
-        <td class="no">server</td>
-        <td class="no">daemon</td>
+        <td>Status bar</td>
+        <td class="sess-col yes">tmux native</td>
+        <td class="no">no</td>
+        <td class="yes">yes</td>
+        <td class="no">no</td>
       </tr>
       <tr>
         <td>Connection log</td>
@@ -510,16 +489,16 @@
 <section id="install">
   <h2 class="section-title">Install</h2>
   <p class="section-desc">
-    One command. Requires dtach, git, and bash.
+    One command. Requires tmux, git, and bash.
   </p>
 
   <div class="install-cmd" onclick="copyCmd(this)">
-    <span class="cmd">npx @deepaksilaych/sess</span>
+    <span class="cmd">npx sess-sh</span>
     <button class="copy">Copy</button>
   </div>
 
   <div class="install-cmd" onclick="copyCmd(this)">
-    <span class="cmd">npm install -g @deepaksilaych/sess</span>
+    <span class="cmd">npm install -g sess-sh</span>
     <button class="copy">Copy</button>
   </div>
 
@@ -531,10 +510,10 @@
 
 <footer>
   <div class="inner">
-    <p>sess — dtach sessions with overlay isolation</p>
+    <p>sess — tmux session manager</p>
     <div class="links">
       <a href="https://github.com/DeepakSilaych/sess">GitHub</a>
-      <a href="https://www.npmjs.com/package/@deepaksilaych/sess">npm</a>
+      <a href="https://www.npmjs.com/package/sess-sh">npm</a>
       <a href="https://github.com/DeepakSilaych/sess/issues">Issues</a>
       <a href="#">MIT License</a>
     </div>

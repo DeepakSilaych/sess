@@ -1,15 +1,11 @@
 {
   "name": "sess-sh",
-  "version": "0.4.3",
-  "description": "dtach sessions with overlay isolation — one tool, no worktrees, no containers, no tmux",
+  "version": "0.5.0",
+  "description": "tmux session manager — one tool, no worktrees, no containers",
   "keywords": [
-    "dtach",
-    "overlayfs",
-    "apfs",
+    "tmux",
     "session",
-    "isolation",
     "git",
-    "overlay",
     "ssh",
     "terminal",
     "development",

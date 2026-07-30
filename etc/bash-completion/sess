@@ -4,7 +4,7 @@ _sess() {
     COMPREPLY=()
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
-    commands="new rm ls overlay diff log connections path status up ssh remote doctor help version"
+    commands="new rm ls diff log connections path status up ssh init remote doctor help version"
 
     _sess_names() {
         local sdir="${SESS_DIR:-$HOME/.sess}/sessions"
@@ -19,15 +19,21 @@ _sess() {
         git branch --format='%(refname:short)' 2>/dev/null
     }
 
+    _sess_remotes() {
+        local cfg="${SESS_DIR:-$HOME/.sess}/remote"
+        [[ -f "$cfg" ]] || return
+        sed -n 's/^\([^.]*\)\.host=.*/\1/p' "$cfg" | awk '!seen[$0]++'
+    }
+
     case "$prev" in
         new)
-            COMPREPLY=($(compgen -W "$(_sess_branches)" -- "$cur"))
+            COMPREPLY=($(compgen -W "$(_sess_branches) --remote --local" -- "$cur"))
+            ;;
+        --remote)
+            COMPREPLY=($(compgen -W "$(_sess_remotes)" -- "$cur"))
             ;;
         rm|diff|log|path|status|connections|conn)
             COMPREPLY=($(compgen -W "$(_sess_names)" -- "$cur"))
-            ;;
-        overlay)
-            COMPREPLY=($(compgen -W "new switch ls rm" -- "$cur"))
             ;;
         remote)
             COMPREPLY=($(compgen -W "add ls rm" -- "$cur"))

@@ -4,14 +4,14 @@ _sess() {
     local -a commands
     commands=(
         'new:Create session and auto-attach'
-        'rm:Remove session (unmounts overlays)'
+        'rm:Remove session'
         'ls:List sessions'
-        'overlay:Manage overlays (new, switch, ls, rm)'
-        'diff:Git diff in session overlay'
+        'diff:Git diff in session directory'
         'log:Activity log'
-        'path:Print overlay/cwd path'
+        'path:Print session cwd'
         'status:Session or overall status'
         'up:Reconnect to previously active sessions'
+        'init:Provision a remote host (tmux+git+sess) and register it'
         'remote:Manage remote VM connections (add, ls, rm)'
         'doctor:Check prerequisites'
         'help:Show help'
@@ -35,15 +35,13 @@ _sess() {
     elif (( CURRENT == 3 )); then
         case "${words[2]}" in
             new)
-                _arguments ':branch:_git_branches'
+                _arguments ':branch:_git_branches' '--remote[use a specific remote]' '--local[force local, skip remotes]'
                 ;;
             rm|diff|log|path|status)
                 _arguments ':session:_values "sessions" $(_sess_names)'
                 ;;
-            overlay)
-                local -a overlay_cmds
-                overlay_cmds=(new switch ls rm)
-                _describe 'overlay command' overlay_cmds
+            init)
+                _arguments ':host:_ssh_hosts'
                 ;;
             remote)
                 local -a remote_cmds
@@ -53,18 +51,14 @@ _sess() {
         esac
     elif (( CURRENT >= 4 )); then
         case "${words[2]}:${words[3]}" in
-            overlay:new)
-                _arguments ':session:_values "sessions" $(_sess_names)'
-                ;;
-            overlay:switch|overlay:rm)
-                local session="${words[4]}"
-                _arguments ':overlay:_values "overlays"'
-                ;;
-            overlay:ls)
-                _arguments ':session:_values "sessions" $(_sess_names)'
-                ;;
             remote:add)
                 _arguments ':name:default' ':host:_ssh_hosts'
+                ;;
+            new:--remote)
+                local cfg="${SESS_DIR:-$HOME/.sess}/remote"
+                local -a remotes
+                [[ -f "$cfg" ]] && remotes=($(sed -n 's/^\([^.]*\)\.host=.*/\1/p' "$cfg" | sort -u))
+                _describe 'remote' remotes
                 ;;
         esac
     fi

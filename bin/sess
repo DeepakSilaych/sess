@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
-# sess — tmux sessions with overlay isolation
+# sess — tmux session manager
 # Single binary, zero dependencies beyond tmux+git.
-# On Linux: OverlayFS for filesystem isolation.
-# On macOS: APFS COW clones for overlay isolation.
 # Auto-reconnect: sess up reconnects to previously active sessions.
 set -euo pipefail
 
@@ -18,9 +16,20 @@ info()  { printf '%s\n' "$*"; }
 _sess_dir()    { echo "$SESS_DIR/sessions/$1"; }
 _state()       { echo "$SESS_DIR/sessions/$1/state"; }
 _log_file()    { echo "$SESS_DIR/sessions/$1/log"; }
-_overlay_dir() { echo "$SESS_DIR/sessions/$1/overlays"; }
 _is_macos()   { [[ "$(uname -s)" == "Darwin" ]]; }
 _is_linux()   { [[ "$(uname -s)" == "Linux" ]]; }
+
+# Resolve the real path to this script, following symlinks (for scp'ing to remotes)
+_self_path() {
+    local src="${BASH_SOURCE[0]}"
+    while [[ -L "$src" ]]; do
+        local dir
+        dir="$(cd -P "$(dirname "$src")" && pwd)"
+        src="$(readlink "$src")"
+        [[ "$src" = /* ]] || src="$dir/$src"
+    done
+    printf '%s\n' "$src"
+}
 
 # ─── Remote config ──────────────────────────────────────────────────────────
 _remote_config() { echo "$SESS_DIR/remote"; }
@@ -47,6 +56,72 @@ _remote_set() {
     else
         echo "${name}.${key}=${value}" > "$cfg"
     fi
+}
+
+# List configured remote names (unique, in file order)
+_remote_names() {
+    local cfg
+    cfg="$(_remote_config)"
+    [[ -f "$cfg" ]] || return 0
+    sed -n 's/^\([^.]*\)\.host=.*/\1/p' "$cfg" | awk '!seen[$0]++'
+}
+
+# Resolve which remote host to use for a new session.
+# Order: explicit --remote flag > only remote configured > interactive pick > none (local).
+_select_remote() {
+    local explicit="${1:-}"
+    if [[ -n "$explicit" ]]; then
+        local host
+        host="$(_remote_get "$explicit" "host" 2>/dev/null || true)"
+        [[ -n "$host" ]] || die "Remote '$explicit' not configured. Use: sess remote ls"
+        echo "$host"
+        return 0
+    fi
+
+    local names=()
+    while IFS= read -r n; do
+        [[ -n "$n" ]] && names+=("$n")
+    done < <(_remote_names)
+
+    case "${#names[@]}" in
+        0) return 0 ;;
+        1) _remote_get "${names[0]}" "host"; return 0 ;;
+        *)
+            if [[ ! -t 0 ]]; then
+                # Non-interactive: prefer "default" if present, else the first configured remote.
+                local host
+                host="$(_remote_get "default" "host" 2>/dev/null || true)"
+                if [[ -n "$host" ]]; then
+                    echo "$host"
+                else
+                    _remote_get "${names[0]}" "host"
+                fi
+                return 0
+            fi
+
+            printf 'Multiple remotes configured:\n' >&2
+            local i=1 n h
+            for n in "${names[@]}"; do
+                h="$(_remote_get "$n" "host")"
+                printf '  %d) %s (%s)\n' "$i" "$n" "$h" >&2
+                i=$((i + 1))
+            done
+            printf '  %d) local (no remote)\n' "$i" >&2
+            printf 'Select remote [1-%d]: ' "$i" >&2
+            local choice
+            read -r choice
+
+            if [[ "$choice" == "$i" ]]; then
+                echo ""
+                return 0
+            fi
+            if [[ "$choice" =~ ^[0-9]+$ ]] && [[ "$choice" -ge 1 ]] && [[ "$choice" -le ${#names[@]} ]]; then
+                _remote_get "${names[$((choice - 1))]}" "host"
+            else
+                die "Invalid selection."
+            fi
+            ;;
+    esac
 }
 
 # ─── Connection log ──────────────────────────────────────────────────────────
@@ -92,8 +167,6 @@ _mark_inactive() {
 # ─── Apply tmux status bar for a session ────────────────────────────────────
 _apply_tmux_status() {
     local session="$1"
-    local state_file
-    state_file="$(_state "$session")"
 
     # Status bar styling
     tmux set-option -t "$session" status on
@@ -102,10 +175,9 @@ _apply_tmux_status() {
     tmux set-option -t "$session" status-left-length 50
     tmux set-option -t "$session" status-right-length 100
 
-    # Left: session name | overlay (if set)
-    # Reads overlay from state file every status-interval seconds
+    # Left: session name
     tmux set-option -t "$session" status-left \
-        "#[fg=colour39,bold] ${session} #[fg=colour214,nobold]#(ov=\$(grep '^SESS_OVERLAY=' '${state_file}' 2>/dev/null | cut -d= -f2); [ \"\$ov\" != 'none' ] && [ -n \"\$ov\" ] && echo \"⬡ \$ov \")#[default]"
+        "#[fg=colour39,bold] ${session} #[default]"
 
     # Right: git branch | short path | time
     tmux set-option -t "$session" status-right \
@@ -123,7 +195,7 @@ _apply_tmux_status() {
 
 # ─── Launch or reuse tmux session ───────────────────────────────────────────
 _tmux_start() {
-    local session="$1" cwd="$2" branch="${3:-main}" overlay="${4:-none}"
+    local session="$1" cwd="$2" branch="${3:-main}"
     local sdir
     sdir="$(_sess_dir "$session")"
 
@@ -135,7 +207,6 @@ _tmux_start() {
 #!/usr/bin/env bash
 export SESS_SESSION='${session}'
 export SESS_BRANCH='${branch}'
-export SESS_OVERLAY='${overlay}'
 export SESS_DIR='${SESS_DIR}'
 cd '${cwd}' 2>/dev/null || cd
 exec '${user_shell}'
@@ -150,15 +221,28 @@ INIT
 
 # ─── cmd: new ────────────────────────────────────────────────────────────────
 cmd_new() {
-    local session="${1:?Usage: sess new <name> [branch]}"
+    local remote_name="" force_local=false
+    local args=()
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -r|--remote) remote_name="${2:?Usage: sess new <name> [branch] --remote <name>}"; shift 2 ;;
+            --local)     force_local=true; shift ;;
+            *)           args+=("$1"); shift ;;
+        esac
+    done
+    set -- "${args[@]}"
+
+    local session="${1:?Usage: sess new <name> [branch] [--remote <name>|--local]}"
     local branch="${2:-}"
 
-    # If a remote is configured, create the session on the VM and attach
-    local remote_host
-    remote_host="$(_remote_get "default" "host" 2>/dev/null || true)"
+    # If a remote is configured (or selected), create the session on the VM and attach
+    local remote_host=""
+    if ! $force_local; then
+        remote_host="$(_select_remote "$remote_name")"
+    fi
     if [[ -n "$remote_host" ]]; then
         info "Creating session '$session' on $remote_host..."
-        exec ssh -t "$remote_host" "sess new $session${branch:+ $branch}"
+        exec ssh -t "$remote_host" "sess new $session${branch:+ $branch} --local"
     fi
 
     local sdir
@@ -176,7 +260,6 @@ cmd_new() {
     cat > "$(_state "$session")" <<STATE
 SESS_SESSION=$session
 SESS_BRANCH=$branch
-SESS_OVERLAY=none
 SESS_CWD=$(pwd)
 SESS_CREATED=$(date -Iseconds)
 STATE
@@ -206,15 +289,11 @@ cmd_attach() {
     source "$(_state "$session")"
 
     local cwd="${SESS_CWD:-$(pwd)}"
-    if [[ "${SESS_OVERLAY:-none}" != "none" ]] && _is_linux; then
-        local merged="$SESS_DIR/sessions/$session/overlays/$SESS_OVERLAY/merged"
-        [[ -d "$merged" ]] && cwd="$merged"
-    fi
 
     _log_event "$session" "attached"
     _mark_active "$session"
 
-    _tmux_start "$session" "$cwd" "${SESS_BRANCH:-main}" "${SESS_OVERLAY:-none}"
+    _tmux_start "$session" "$cwd" "${SESS_BRANCH:-main}"
 
     # Attach — returns on detach (Ctrl+b d) or when session is killed
     tmux attach-session -t "$session" || true
@@ -250,19 +329,18 @@ cmd_ls() {
 
     [[ $count -eq 0 ]] && { info "No sessions. Use: sess new <name>"; return 0; }
 
-    printf '%-20s %-15s %-12s %-10s %-20s\n' "SESSION" "BRANCH" "OVERLAY" "STATUS" "CREATED"
-    printf '%-20s %-15s %-12s %-10s %-20s\n' "--------------------" "---------------" "------------" "----------" "--------------------"
+    printf '%-20s %-15s %-10s %-20s\n' "SESSION" "BRANCH" "STATUS" "CREATED"
+    printf '%-20s %-15s %-10s %-20s\n' "--------------------" "---------------" "----------" "--------------------"
 
     for d in "$sbase"/*/; do
         [[ -d "$d" ]] || continue
         local name
         name="$(basename "$d")"
         local state="$d/state"
-        local branch="?" overlay="none" created="?"
+        local branch="?" created="?"
 
         if [[ -f "$state" ]]; then
             branch="$(grep '^SESS_BRANCH=' "$state" | cut -d= -f2)"
-            overlay="$(grep '^SESS_OVERLAY=' "$state" | cut -d= -f2)"
             created="$(grep '^SESS_CREATED=' "$state" | cut -d= -f2)"
             created="${created%%+*}"
         fi
@@ -270,7 +348,7 @@ cmd_ls() {
         local status="inactive"
         tmux has-session -t "$name" 2>/dev/null && status="active"
 
-        printf '%-20s %-15s %-12s %-10s %-20s\n' "$name" "$branch" "$overlay" "$status" "$created"
+        printf '%-20s %-15s %-10s %-20s\n' "$name" "$branch" "$status" "$created"
     done
 }
 
@@ -295,265 +373,10 @@ cmd_rm() {
         tmux kill-session -t "$session"
     fi
 
-    # Unmount any overlays first (Linux)
-    if _is_linux; then
-        for odir in "$sdir/overlays"/*/; do
-            [[ -d "$odir" ]] || continue
-            local merged="$odir/merged"
-            if mountpoint -q "$merged" 2>/dev/null; then
-                sudo umount "$merged" 2>/dev/null || true
-            fi
-        done
-    fi
-
     _log_event "$session" "removed"
     _mark_inactive "$session"
     rm -rf "$sdir"
     info "Session '$session' removed."
-}
-
-# ─── cmd: overlay ────────────────────────────────────────────────────────────
-cmd_overlay() {
-    local subcmd="${1:?Usage: sess overlay <new|switch|ls|rm> ...}"
-    shift
-
-    case "$subcmd" in
-        new)    overlay_new "$@" ;;
-        switch) overlay_switch "$@" ;;
-        ls)     overlay_ls "$@" ;;
-        rm)     overlay_rm "$@" ;;
-        *)      die "Unknown overlay subcommand: $subcmd. Use: new, switch, ls, rm" ;;
-    esac
-}
-
-overlay_new() {
-    local session="${1:?Usage: sess overlay new <session> <overlay-name> [branch]}"
-    local overlay="${2:?Usage: sess overlay new <session> <overlay-name> [branch]}"
-    local branch="${3:-}"
-
-    _is_linux || {
-        _is_macos || die "Overlays require Linux (OverlayFS) or macOS (APFS). Current OS: $(uname -s)"
-        overlay_new_macos "$session" "$overlay" "$branch"
-        return
-    }
-
-    local sdir
-    sdir="$(_sess_dir "$session")"
-    [[ -d "$sdir" ]] || die "Session '$session' does not exist."
-
-    local odir="$sdir/overlays/$overlay"
-    [[ -d "$odir" ]] && die "Overlay '$overlay' already exists in session '$session'."
-
-    if [[ -z "$branch" ]]; then
-        source "$(_state "$session")"
-        local repo_cwd="${SESS_CWD:-$(pwd)}"
-        local git_root
-        git_root="$(git -C "$repo_cwd" rev-parse --show-toplevel 2>/dev/null || echo "")"
-        if [[ -n "$git_root" ]]; then
-            branch="$(git -C "$git_root" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || echo main)"
-        else
-            branch="main"
-        fi
-    fi
-
-    source "$(_state "$session")"
-    local repo_cwd="${SESS_CWD:-$(pwd)}"
-    local git_root
-    git_root="$(git -C "$repo_cwd" rev-parse --show-toplevel 2>/dev/null)" || die "Not in a git repository."
-
-    info "Pulling latest '$branch'..."
-    git -C "$git_root" fetch origin "$branch" 2>/dev/null || true
-    git -C "$git_root" checkout "$branch" 2>/dev/null || true
-    git -C "$git_root" pull origin "$branch" 2>/dev/null || true
-
-    mkdir -p "$odir/upper" "$odir/work" "$odir/merged"
-
-    local lower="$git_root"
-    local upper="$odir/upper"
-    local work="$odir/work"
-    local merged="$odir/merged"
-
-    sudo mount -t overlay "sess-$session-$overlay" \
-        -o "lowerdir=$lower,upperdir=$upper,workdir=$work" \
-        "$merged" || die "OverlayFS mount failed. Run 'sess doctor' to check prerequisites."
-
-    git -C "$merged" checkout "$branch" 2>/dev/null || true
-
-    sed -i "s/^SESS_OVERLAY=.*/SESS_OVERLAY=$overlay/" "$(_state "$session")"
-
-    # Update tmux session env var if running
-    if tmux has-session -t "$session" 2>/dev/null; then
-        tmux send-keys -t "$session" "export SESS_OVERLAY='$overlay'" Enter
-        _apply_tmux_status "$session"
-    fi
-
-    _log_event "$session" "overlay new: $overlay (branch: $branch)"
-
-    info "Overlay '$overlay' created and mounted."
-    info "  Branch:  $branch"
-    info "  Path:    $merged"
-    info ""
-    info "Switch to it:  sess overlay switch $session $overlay"
-}
-
-overlay_new_macos() {
-    local session="${1:?Usage: sess overlay new <session> <overlay-name> [branch]}"
-    local overlay="${2:?Usage: sess overlay new <session> <overlay-name> [branch]}"
-    local branch="${3:-}"
-
-    local sdir
-    sdir="$(_sess_dir "$session")"
-    [[ -d "$sdir" ]] || die "Session '$session' does not exist."
-
-    local odir="$sdir/overlays/$overlay"
-    [[ -d "$odir" ]] && die "Overlay '$overlay' already exists in session '$session'."
-
-    source "$(_state "$session")"
-    local repo_cwd="${SESS_CWD:-$(pwd)}"
-    local git_root
-    git_root="$(git -C "$repo_cwd" rev-parse --show-toplevel 2>/dev/null || echo "")"
-    [[ -z "$git_root" ]] && die "Not in a git repository."
-
-    if [[ -z "$branch" ]]; then
-        branch="$(git -C "$git_root" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || echo main)"
-    fi
-
-    info "Pulling latest '$branch'..."
-    git -C "$git_root" fetch origin "$branch" 2>/dev/null || true
-    git -C "$git_root" checkout "$branch" 2>/dev/null || true
-    git -C "$git_root" pull origin "$branch" 2>/dev/null || true
-
-    local merged="$odir/merged"
-    mkdir -p "$odir"
-
-    if cp -cR "$git_root" "$merged" 2>/dev/null; then
-        info "Overlay '$overlay' created (APFS clone)."
-    else
-        info "APFS clone not available, using full copy..."
-        cp -R "$git_root" "$merged"
-        info "Overlay '$overlay' created (full copy)."
-    fi
-
-    git -C "$merged" checkout "$branch" 2>/dev/null || true
-
-    sed -i '' "s/^SESS_OVERLAY=.*/SESS_OVERLAY=$overlay/" "$(_state "$session")"
-
-    if tmux has-session -t "$session" 2>/dev/null; then
-        tmux send-keys -t "$session" "export SESS_OVERLAY='$overlay'" Enter
-        _apply_tmux_status "$session"
-    fi
-
-    _log_event "$session" "overlay new (macOS): $overlay (branch: $branch)"
-
-    info "  Branch:  $branch"
-    info "  Path:    $merged"
-}
-
-overlay_switch() {
-    local session="${1:?Usage: sess overlay switch <session> <overlay-name>}"
-    local overlay="${2:?Usage: sess overlay switch <session> <overlay-name>}"
-
-    local sdir
-    sdir="$(_sess_dir "$session")"
-    [[ -d "$sdir" ]] || die "Session '$session' does not exist."
-
-    local odir="$sdir/overlays/$overlay"
-    [[ -d "$odir" ]] || die "Overlay '$overlay' does not exist in session '$session'."
-
-    if _is_linux; then
-        mountpoint -q "$odir/merged" 2>/dev/null || die "Overlay '$overlay' is not mounted."
-    else
-        [[ -d "$odir/merged" ]] || die "Overlay '$overlay' directory not found."
-    fi
-
-    if _is_linux; then
-        sed -i "s/^SESS_OVERLAY=.*/SESS_OVERLAY=$overlay/" "$(_state "$session")"
-    else
-        sed -i '' "s/^SESS_OVERLAY=.*/SESS_OVERLAY=$overlay/" "$(_state "$session")"
-    fi
-
-    if tmux has-session -t "$session" 2>/dev/null; then
-        tmux send-keys -t "$session" "export SESS_OVERLAY='$overlay'" Enter
-        _apply_tmux_status "$session"
-    fi
-
-    _log_event "$session" "overlay switch: $overlay"
-
-    info "Switched to overlay '$overlay'."
-    info "Path: $odir/merged"
-    info ""
-    info "Detach and reattach to update cwd:"
-    info "  Ctrl+b d  (detach)"
-    info "  sess $session  (reattach)"
-}
-
-overlay_ls() {
-    local session="${1:?Usage: sess overlay ls <session>}"
-
-    local sdir
-    sdir="$(_sess_dir "$session")"
-    [[ -d "$sdir" ]] || die "Session '$session' does not exist."
-
-    local odir="$sdir/overlays"
-    [[ -d "$odir" ]] || { info "No overlays in session '$session'."; return 0; }
-
-    local current
-    current="$(grep '^SESS_OVERLAY=' "$(_state "$session")" | cut -d= -f2)"
-
-    for d in "$odir"/*/; do
-        [[ -d "$d" ]] || continue
-        local oname
-        oname="$(basename "$d")"
-        local merged="$d/merged"
-        local marker=""
-        [[ "$oname" == "$current" ]] && marker=" <- current"
-
-        if _is_linux && mountpoint -q "$merged" 2>/dev/null; then
-            local branch
-            branch="$(git -C "$merged" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "?")"
-            printf '%-20s %-15s %-10s%s\n' "$oname" "$branch" "mounted" "$marker"
-        elif [[ -d "$merged" ]]; then
-            local branch
-            branch="$(git -C "$merged" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "?")"
-            printf '%-20s %-15s %-10s%s\n' "$oname" "$branch" "clone" "$marker"
-        else
-            printf '%-20s %-15s %-10s%s\n' "$oname" "?" "missing" "$marker"
-        fi
-    done
-}
-
-overlay_rm() {
-    local session="${1:?Usage: sess overlay rm <session> <overlay-name>}"
-    local overlay="${2:?Usage: sess overlay rm <session> <overlay-name>}"
-
-    local sdir
-    sdir="$(_sess_dir "$session")"
-    [[ -d "$sdir" ]] || die "Session '$session' does not exist."
-
-    local odir="$sdir/overlays/$overlay"
-    [[ -d "$odir" ]] || die "Overlay '$overlay' does not exist in session '$session'."
-
-    if _is_linux && mountpoint -q "$odir/merged" 2>/dev/null; then
-        sudo umount "$odir/merged" || die "Failed to unmount overlay '$overlay'."
-    fi
-
-    local current
-    current="$(grep '^SESS_OVERLAY=' "$(_state "$session")" | cut -d= -f2)"
-    if [[ "$current" == "$overlay" ]]; then
-        if _is_linux; then
-            sed -i "s/^SESS_OVERLAY=.*/SESS_OVERLAY=none/" "$(_state "$session")"
-        else
-            sed -i '' "s/^SESS_OVERLAY=.*/SESS_OVERLAY=none/" "$(_state "$session")"
-        fi
-        if tmux has-session -t "$session" 2>/dev/null; then
-            tmux send-keys -t "$session" "export SESS_OVERLAY='none'" Enter
-            _apply_tmux_status "$session"
-        fi
-    fi
-
-    rm -rf "$odir"
-    _log_event "$session" "overlay rm: $overlay"
-    info "Overlay '$overlay' removed."
 }
 
 # ─── cmd: diff ───────────────────────────────────────────────────────────────
@@ -567,19 +390,15 @@ cmd_diff() {
 
     source "$(_state "$session")"
 
-    if [[ "${SESS_OVERLAY:-none}" == "none" ]]; then
-        die "No active overlay in session '$session'. Create one: sess overlay new $session <name>"
-    fi
-
-    local merged="$sdir/overlays/$SESS_OVERLAY/merged"
-    [[ -d "$merged" ]] || die "Overlay '$SESS_OVERLAY' directory not found."
+    local cwd="${SESS_CWD:-$(pwd)}"
+    git -C "$cwd" rev-parse --is-inside-work-tree &>/dev/null || die "Session '$session' cwd is not a git repository."
 
     _log_event "$session" "diff${path:+ (path: $path)}"
 
     if [[ -n "$path" ]]; then
-        git -C "$merged" diff -- "$path"
+        git -C "$cwd" diff -- "$path"
     else
-        git -C "$merged" diff
+        git -C "$cwd" diff
     fi
 }
 
@@ -614,11 +433,7 @@ cmd_path() {
 
     source "$(_state "$session")"
 
-    if [[ "${SESS_OVERLAY:-none}" == "none" ]]; then
-        echo "${SESS_CWD:-$(pwd)}"
-    else
-        echo "$sdir/overlays/$SESS_OVERLAY/merged"
-    fi
+    echo "${SESS_CWD:-$(pwd)}"
 }
 
 # ─── cmd: status ─────────────────────────────────────────────────────────────
@@ -628,13 +443,7 @@ cmd_status() {
     if [[ -z "$session" ]]; then
         info "sess $VERSION"
         info "State dir: $SESS_DIR"
-        if _is_linux; then
-            info "Platform: Linux (OverlayFS available)"
-        elif _is_macos; then
-            info "Platform: macOS (APFS clones available)"
-        else
-            info "Platform: $(uname -s) (no overlay support)"
-        fi
+        info "Platform: $(uname -s)"
 
         local count=0
         for _ in "$SESS_DIR/sessions"/*/; do
@@ -660,7 +469,6 @@ cmd_status() {
 
     info "Session: $session"
     info "  Branch:  ${SESS_BRANCH:-?}"
-    info "  Overlay: ${SESS_OVERLAY:-none}"
     info "  CWD:     ${SESS_CWD:-?}"
     info "  Created: ${SESS_CREATED:-?}"
 
@@ -668,30 +476,6 @@ cmd_status() {
         info "  Status:  active (tmux session running)"
     else
         info "  Status:  inactive"
-    fi
-
-    local odir="$sdir/overlays"
-    if [[ -d "$odir" ]]; then
-        info ""
-        info "Overlays:"
-        for d in "$odir"/*/; do
-            [[ -d "$d" ]] || continue
-            local oname
-            oname="$(basename "$d")"
-            local marker=""
-            [[ "$oname" == "${SESS_OVERLAY:-none}" ]] && marker=" <- current"
-            if _is_linux && mountpoint -q "$d/merged" 2>/dev/null; then
-                local branch
-                branch="$(git -C "$d/merged" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "?")"
-                info "  $oname ($branch, mounted)$marker"
-            elif [[ -d "$d/merged" ]]; then
-                local branch
-                branch="$(git -C "$d/merged" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "?")"
-                info "  $oname ($branch, clone)$marker"
-            else
-                info "  $oname (unmounted)$marker"
-            fi
-        done
     fi
 
     local log
@@ -747,12 +531,12 @@ _local_up() {
         for session in "${sessions[@]}"; do
             source "$(_state "$session")"
             local cwd="${SESS_CWD:-$(pwd)}"
-            _tmux_start "$session" "$cwd" "${SESS_BRANCH:-main}" "${SESS_OVERLAY:-none}"
+            _tmux_start "$session" "$cwd" "${SESS_BRANCH:-main}"
         done
         tmux switch-client -t "${first}"
     else
         # Attach to the last active session
-        local last="${sessions[-1]}"
+        local last="${sessions[${#sessions[@]}-1]}"
         cmd_attach "$last"
     fi
 }
@@ -775,11 +559,6 @@ cmd_code() {
 
     source "$(_state "$session")"
     local cwd="${SESS_CWD:-$(pwd)}"
-
-    if [[ "${SESS_OVERLAY:-none}" != "none" ]]; then
-        local overlay_path="$sdir/overlays/$SESS_OVERLAY/merged"
-        [[ -d "$overlay_path" ]] && cwd="$overlay_path"
-    fi
 
     local remote_host
     remote_host="$(_remote_get "default" "host" 2>/dev/null || true)"
@@ -841,11 +620,70 @@ remote_add() {
         info "sess is available on $host."
     else
         info "sess is not installed on $host."
-        info "Install it by copying the script:"
-        info "  scp $(which sess) $host:~/bin/sess"
+        info "Install it with:  sess init $host"
     fi
 
     info "Remote '$name' configured: $host"
+}
+
+# ─── cmd: init ───────────────────────────────────────────────────────────────
+# Provisions a remote host: installs tmux + git, ships this sess script over,
+# puts it on PATH, and registers the remote.
+cmd_init() {
+    local host="${1:?Usage: sess init <user@host> [name]}"
+    local name="${2:-default}"
+
+    info "Testing SSH connection to $host..."
+    ssh -o ConnectTimeout=8 "$host" "echo ok" &>/dev/null \
+        || die "Could not connect to $host. Check the host/credentials, e.g.: ssh $host"
+    info "SSH connection to $host works."
+
+    info "Installing tmux + git on $host (may prompt for sudo password)..."
+    ssh -t "$host" '
+        set -e
+        if command -v tmux >/dev/null 2>&1 && command -v git >/dev/null 2>&1; then
+            echo "tmux + git already installed."
+            exit 0
+        fi
+        if command -v apt-get >/dev/null 2>&1; then
+            sudo apt-get update -y && sudo apt-get install -y tmux git
+        elif command -v dnf >/dev/null 2>&1; then
+            sudo dnf install -y tmux git
+        elif command -v yum >/dev/null 2>&1; then
+            sudo yum install -y tmux git
+        elif command -v apk >/dev/null 2>&1; then
+            sudo apk add --no-cache tmux git
+        elif command -v pacman >/dev/null 2>&1; then
+            sudo pacman -Sy --noconfirm tmux git
+        elif command -v brew >/dev/null 2>&1; then
+            brew install tmux git
+        else
+            echo "No supported package manager found. Install tmux and git manually." >&2
+            exit 1
+        fi
+    ' || die "Failed to install tmux/git on $host."
+
+    info "Installing sess on $host..."
+    local self
+    self="$(_self_path)"
+    ssh "$host" "mkdir -p ~/bin"
+    scp -q "$self" "$host:~/bin/sess"
+    ssh "$host" "chmod +x ~/bin/sess"
+
+    ssh "$host" '
+        for rc in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
+            [ -f "$rc" ] || continue
+            grep -qs "HOME/bin" "$rc" || printf "export PATH=\"\$HOME/bin:\$PATH\"\n" >> "$rc"
+        done
+    '
+
+    info "Verifying install..."
+    ssh "$host" '~/bin/sess version' || die "sess did not install correctly on $host."
+
+    _remote_set "$name" "host" "$host"
+    info ""
+    info "Remote '$name' ready: $host"
+    info "Start a session with: sess new <name>"
 }
 
 remote_rm() {
@@ -941,13 +779,7 @@ _remote_up() {
 cmd_doctor() {
     local ok=true
 
-    if _is_linux; then
-        info "Platform: Linux (OverlayFS available)"
-    elif _is_macos; then
-        info "Platform: macOS (APFS clones available for overlays)"
-    else
-        info "Platform: $(uname -s) (no overlay support)"
-    fi
+    info "Platform: $(uname -s)"
 
     # tmux
     if command -v tmux &>/dev/null; then
@@ -972,30 +804,6 @@ cmd_doctor() {
     else
         info "bash:     NOT installed"
         ok=false
-    fi
-
-    # OverlayFS / APFS
-    if _is_linux; then
-        if lsmod 2>/dev/null | grep -q overlay || grep -q 'overlay' /proc/filesystems 2>/dev/null; then
-            info "OverlayFS: available"
-        else
-            info "OverlayFS: not loaded (try: sudo modprobe overlay)"
-            ok=false
-        fi
-
-        if sudo -n true 2>/dev/null || [[ "$(id -u)" -eq 0 ]]; then
-            info "Mount:    root/sudo available"
-        else
-            info "Mount:    need sudo for OverlayFS mounts"
-        fi
-    elif _is_macos; then
-        local fs_type
-        fs_type="$(diskutil info / 2>/dev/null | grep 'Type (Bundle):' | awk '{print $NF}' || echo "unknown")"
-        if [[ "$fs_type" == "apfs" ]]; then
-            info "APFS:     available (COW clones supported)"
-        else
-            info "APFS:     not detected (COW clones may not work)"
-        fi
     fi
 
     # SSH
@@ -1051,31 +859,30 @@ cmd_connections() {
 # ─── cmd: help ───────────────────────────────────────────────────────────────
 cmd_help() {
     cat <<'HELP'
-sess — tmux sessions with overlay isolation
+sess — tmux session manager
 
 USAGE:
   sess new <name> [branch]        Create session + auto-attach
+                                  --remote <name>  use a specific remote
+                                  --local          force local, skip remotes
   sess <name>                     Attach to existing session
                                   Ctrl+b d to detach
 
   sess ls                         List sessions
-  sess rm <name>                  Remove session (kills tmux, unmounts overlays)
+  sess rm <name>                  Remove session (kills tmux)
 
-  sess overlay new <s> <ov> [br]  Create overlay (from latest default branch)
-  sess overlay switch <s> <ov>    Switch active overlay in session
-  sess overlay ls <s>             List overlays in session
-  sess overlay rm <s> <ov>        Remove overlay (unmounts first)
-
-  sess diff <name> [path]         Git diff in session's overlay
+  sess diff <name> [path]         Git diff in session's directory
   sess log <name> [N]             Activity log (default: last 20)
   sess connections <name> [N]     Connection log (detach/exit/drop)
-  sess path <name>                Print overlay/cwd path (for scripts)
+  sess path <name>                Print session's cwd (for scripts)
   sess code <name>                Open Cursor/VS Code for session
   sess status [name]              Session info or overall status
 
   sess ssh [args]                 SSH to configured remote VM
   sess up                         Reconnect to previously active sessions
-  sess remote add [name] <host>   Configure a remote VM for sessions
+  sess init <user@host> [name]    Provision a host: install tmux+git+sess,
+                                  register it as a remote
+  sess remote add [name] <host>   Register an already-provisioned remote
   sess remote ls                  List configured remotes
   sess remote rm [name]           Remove a remote
 
@@ -1085,9 +892,9 @@ USAGE:
 
 TMUX STATUS BAR:
   Inside a session the bottom bar shows:
-    [left]  session-name  ⬡ overlay-name
+    [left]  session-name
     [right] git-branch  dir-name  HH:MM
-  Updates every 5 seconds. No configuration needed.
+  Updates every 3 seconds. No configuration needed.
 
 DETACH / REATTACH:
   Ctrl+b d      detach from session (session persists in tmux)
@@ -1112,23 +919,22 @@ AUTO-RECONNECT:
   When you open it, run: sess up
   This reconnects to all sessions you had active before.
 
-OVERLAYS:
-  Linux:  OverlayFS mount (instant, delta-only)
-  macOS:  APFS COW clone (instant on APFS, full copy semantics)
-
 REMOTE SESSIONS:
-  sess remote add default user@dev-vm    # one-time setup
+  sess init user@dev-vm                   # one-time: install + register
   sess ssh                                # just SSH to the VM
   sess new feature-auth                   # creates on remote
   sess feature-auth                       # SSHes to remote, attaches
   sess code feature-auth                  # opens Cursor/VS Code on laptop
   sess up                                 # reconnects all active on wake
 
+  Multiple remotes configured? sess new prompts you to pick one,
+  or skip the prompt with: sess new <name> --remote <name>
+  Only one remote configured — it's used automatically, no prompt.
+
 ENVIRONMENT:
   SESS_DIR      State directory (default: ~/.sess)
   SESS_SESSION  Set inside sessions (session name)
   SESS_BRANCH   Set inside sessions (branch)
-  SESS_OVERLAY  Set inside sessions (current overlay name)
   SESS_EDITOR   Editor for 'sess code' (default: cursor or code)
 HELP
 }
@@ -1142,13 +948,13 @@ case "${1:-help}" in
     up)               shift; cmd_up "$@" ;;
     ssh)              shift; cmd_ssh "$@" ;;
     code)             shift; cmd_code "$@" ;;
-    overlay)          shift; cmd_overlay "$@" ;;
     diff)             shift; cmd_diff "$@" ;;
     log)              shift; cmd_log "$@" ;;
     connections|conn) shift; cmd_connections "$@" ;;
     path)             shift; cmd_path "$@" ;;
     status)           shift; cmd_status "$@" ;;
     remote)           shift; cmd_remote "$@" ;;
+    init)             shift; cmd_init "$@" ;;
     doctor)           shift; cmd_doctor "$@" ;;
     help|--help|-h)   cmd_help ;;
     version|--version|-v) info "sess $VERSION" ;;
