@@ -39,14 +39,7 @@ Inside a session the tmux status bar shows the session name on the left and, on 
 
 Prerequisites: `tmux`, `git`, `bash`, and `ssh` for remote sessions. `sess doctor` checks all four. Runs on macOS and Linux (`package.json` `os`).
 
-Install from npm:
-
-```bash
-npx sess-sh                # run once without installing
-npm install -g sess-sh
-```
-
-Or from source (installs `bin/sess` plus bash and zsh completions under `PREFIX`, default `/usr/local`):
+Install from source (the `sess-sh` npm package is not published yet). This installs `bin/sess` plus bash and zsh completions under `PREFIX`, default `/usr/local`):
 
 ```bash
 git clone https://github.com/deepaksilaych/sess.git
@@ -145,7 +138,7 @@ sess feature-auth
 | `sess up` reattaches previously active sessions; macOS opens a Terminal tab per session | `cmd_up`, `_local_up`, `_remote_up` |
 | `sess code` opens `$SESS_EDITOR`, else `cursor`, else `code`; remote via `--remote host` then a `vscode-remote://` URI | `cmd_code` |
 | bash and zsh completion for commands, session names, git branches, remote names | `etc/bash-completion/sess`, `etc/zsh-completion/_sess` |
-| npm wrapper so `npx sess-sh` works; zero npm dependencies | `bin/sess-cli.js`, `package.json` |
+| npm wrapper so `npx sess-sh` works once published; zero npm dependencies | `bin/sess-cli.js`, `package.json` |
 
 All commands (`sess help`):
 
