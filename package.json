@@ -1,6 +1,6 @@
 {
   "name": "sess-cli",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Persistent SSH terminals powered by zmx",
   "license": "MIT",
   "repository": {
