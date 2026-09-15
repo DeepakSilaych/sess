@@ -1,37 +1,29 @@
-.PHONY: install uninstall clean test
+.PHONY: build agents test integration install uninstall clean
+PREFIX ?= $(HOME)/.local
 
-PREFIX ?= /usr/local
-SESS_DIR ?= $(HOME)/.sess
+agents:
+	./scripts/build-agents.sh
 
-BIN_DIR = $(DESTDIR)$(PREFIX)/bin
-COMPLETION_DIR_BASH = $(DESTDIR)$(PREFIX)/share/bash-completion/completions
-COMPLETION_DIR_ZSH = $(DESTDIR)$(PREFIX)/share/zsh/site-functions
+build: agents
+	go build -trimpath -ldflags='-s -w' -o dist/sess ./cmd/sess
 
 test:
-	@echo "Running sess tests..."
-	@bash -n bin/sess && echo "✓ sess: syntax OK" || exit 1
-	@bash -n etc/bash-completion/sess && echo "✓ bash completion: OK" || exit 1
-	@bash -c 'source etc/bash-completion/sess' && echo "✓ bash completion loads OK" || exit 1
-	@echo "Done."
+	go test -race ./...
+	go vet ./...
 
-install: bin/sess
-	@mkdir -p $(BIN_DIR)
-	@mkdir -p $(COMPLETION_DIR_BASH)
-	@mkdir -p $(COMPLETION_DIR_ZSH)
-	cp bin/sess $(BIN_DIR)/sess
-	chmod +x $(BIN_DIR)/sess
-	cp etc/bash-completion/sess $(COMPLETION_DIR_BASH)/sess
-	cp etc/zsh-completion/_sess $(COMPLETION_DIR_ZSH)/_sess
-	@echo "Installed to $(PREFIX)"
-	@echo "  sess         → $(BIN_DIR)/sess"
-	@echo "  bash comp    → $(COMPLETION_DIR_BASH)/sess"
-	@echo "  zsh comp     → $(COMPLETION_DIR_ZSH)/_sess"
+integration: build
+	python3 test/integration/run.py
+
+install: build
+	install -d "$(DESTDIR)$(PREFIX)/bin"
+	install -m 755 dist/sess "$(DESTDIR)$(PREFIX)/bin/sess"
+	install -d "$(DESTDIR)$(PREFIX)/share/bash-completion/completions" "$(DESTDIR)$(PREFIX)/share/zsh/site-functions"
+	dist/sess completion bash > "$(DESTDIR)$(PREFIX)/share/bash-completion/completions/sess"
+	dist/sess completion zsh > "$(DESTDIR)$(PREFIX)/share/zsh/site-functions/_sess"
 
 uninstall:
-	rm -f $(BIN_DIR)/sess
-	rm -f $(COMPLETION_DIR_BASH)/sess
-	rm -f $(COMPLETION_DIR_ZSH)/_sess
-	@echo "Uninstalled from $(PREFIX)"
+	rm -f "$(DESTDIR)$(PREFIX)/bin/sess" "$(DESTDIR)$(PREFIX)/share/bash-completion/completions/sess" "$(DESTDIR)$(PREFIX)/share/zsh/site-functions/_sess"
 
 clean:
-	rm -rf node_modules
+	rm -rf dist
+	rm -f internal/provision/assets/*.gz

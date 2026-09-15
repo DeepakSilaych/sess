@@ -1,259 +1,168 @@
-<div align="center">
-
 # sess
 
-tmux sessions that remember where they were and reconnect over SSH when the link drops.
+**A persistent SSH terminal. Powered by zmx.**
 
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+Give a terminal on your VM a name. Leave it running. Come back to the same shell, directory, and programs after you detach or lose your connection.
 
-> One tool. No worktrees. No containers.
-
-</div>
-
-## Why
-
-Close the laptop and your SSH session dies. tmux keeps the shell alive on the server, but getting back means typing `ssh`, then `tmux attach`, then remembering which session was in which directory. mosh and Eternal Terminal fix the transport, but each needs its own server daemon on every box.
-
-`sess` is one bash script on top of `ssh` and `tmux`. It keeps a small state dir per session (cwd, branch, logs), copies itself to your VM with `sess init`, and when you attach to a remote session it re-runs `ssh -t host "sess <name>"` every 3 seconds until you stop it. Nothing else to install, nothing listening on a port.
-
-## Demo
-
-```
-sess new feature-auth          # create + auto-attach (cwd = where you ran it)
-...work in session...
-Ctrl+b d                       # detach (session persists in tmux)
-sess feature-auth              # reattach (loops on SSH drop if a remote is set)
-
-sess rm feature-auth           # destroy session
+```sh
+sess init user@host
+sess set --host user@host
+sess new work
+# Ctrl+\ to detach
+sess attach work
 ```
 
-Inside a session the tmux status bar shows the session name on the left and, on the right, the git branch of the current pane directory, the directory name, and the time. It refreshes every 3 seconds and follows wherever you `cd`.
+Run `sess` to browse your sessions. Your terminal application handles tabs and windows; sess handles session management and reconnection.
 
-```
- session-name                    main  rfq-modular  22:18
-```
+## Build and install
 
-<!-- TODO: gif of a remote session reconnecting after the network drops -->
+Requires Go 1.26.5+ to build. The installed client needs OpenSSH. Linux and macOS on AMD64 and ARM64 are supported build targets.
 
-## Quickstart
-
-Prerequisites: `tmux`, `git`, `bash`, and `ssh` for remote sessions. `sess doctor` checks all four. Runs on macOS and Linux (`package.json` `os`).
-
-Install from source (the `sess-sh` npm package is not published yet). This installs `bin/sess` plus bash and zsh completions under `PREFIX`, default `/usr/local`):
-
-```bash
-git clone https://github.com/deepaksilaych/sess.git
+```sh
+git clone https://github.com/DeepakSilaych/sess.git
 cd sess
-sudo make install          # or: PREFIX=$HOME/.local make install
+make build
+./dist/sess --help
+make install                       # default: ~/.local/bin
+# or: make install PREFIX=/usr/local
 ```
 
-Or just put `bin/` on your PATH:
+Ensure the installation's `bin` directory is in your PATH. `make build` embeds the remote helpers for all four targets, so the remote VM needs neither Go nor a compiler. `go install` alone does not generate those helpers; use `make build` or a release archive.
 
-```bash
-chmod +x bin/sess
-export PATH="$PWD/bin:$PATH"
+This is the zmx-based 0.6 development version. Existing tmux sessions from 0.5 continue to belong to tmux; they cannot be converted into live zmx sessions. Attach to them with tmux while finishing that work. The old `~/.sess` state is left untouched.
+
+## Prepare a host
+
+```sh
+sess init dev                        # existing SSH alias, or user@host
+sess set --host dev                  # choose the default separately
+sess doctor
 ```
 
-Local sessions:
+`init` verifies SSH, detects the VM's platform, installs the remote helper and pinned zmx 0.8.1 under `~/.local/share/sess/bin`, and checks the result. No sudo, extra network port, or laptop daemon. The zmx archive is downloaded over HTTPS and verified against its pinned SHA-256 digest before installation. A different existing managed zmx version is not silently replaced.
 
-```bash
-cd ~/code/my-repo
-sess new feature-auth      # creates ~/.sess/sessions/feature-auth, starts tmux, attaches
-# Ctrl+b d to detach
-sess ls                    # SESSION / BRANCH / STATUS / CREATED
-sess feature-auth          # reattach
+Use SSH keys available to `ssh-agent` for session operations and reconnecting. Provisioning can prompt through SSH; subsequent operations use OpenSSH's batch mode so a background refresh cannot ask for a password. Configure ports, jump hosts, and identities in `~/.ssh/config`.
+
+`init` does not change your default host. It also does not edit your shell startup files.
+
+## Commands
+
+| Command | Shortcut | Purpose |
+| --- | --- | --- |
+| `sess init <host>` | | Prepare the VM |
+| `sess set --host <host>` | `sess set -h <host>` | Save the default SSH destination |
+| `sess new <name>` | `sess n <name>` | Create and attach |
+| `sess attach <name>` | `sess a <name>` | Attach to an existing session |
+| `sess remove <name>` | `sess rm <name>` | End the session and its programs |
+| `sess ls` | | List live sessions |
+| `sess detach` | | Inside a session, detach all attached terminals |
+| `sess` | | Open the interactive session browser |
+| `sess doctor` | | Check SSH and remote dependencies |
+| `sess version` | | Print version |
+| `sess completion bash` | | Generate bash, zsh, or fish completion |
+
+Use `--host` or `-h` to override the host for a session command without changing the default:
+
+```sh
+sess n build -h staging
+sess a build -h staging
+sess ls -h staging
+sess rm build -h staging
 ```
 
-Remote sessions (sessions live on the VM, the laptop is just a terminal):
+Host resolution is explicit flag → saved default → actionable error. There is no local fallback. `-h` means host; help is `--help`.
 
-```bash
-sess init user@dev-vm      # one time: installs tmux+git, copies sess to ~/bin/sess, registers "default"
-sess new feature-auth      # runs "sess new feature-auth --local" on the VM over ssh -t, attaches
-sess feature-auth          # ssh -t + attach, retried every 3s after any disconnect
-sess ssh                   # plain ssh to the VM
+Names are 1–48 letters, numbers, hyphens, or underscores, starting with a letter or number. Names are scoped to the remote account. Aliases for the same account and VM see the same sessions.
+
+New shells start in the remote home directory. Use `cd` normally. Sessions share the VM's filesystem and Git checkout; creating a session does not copy a repository.
+
+### Scripts
+
+```sh
+sess new build --detach             # also: -d; does not need a terminal
+sess ls --json                      # {"host": "dev", "sessions": [...]}
+sess ls --quiet                     # names only; also: -q
 ```
 
-Verify:
+Redirected bare `sess` prints a list. `new` without `--detach` and `attach` require an interactive terminal. Errors go to stderr with a nonzero exit status. JSON list output includes stable session IDs, client counts, creation time, initial directory, PID, and attached/detached state.
 
-```bash
-sess status                # version, state dir, session count, previously active sessions
-sess connections feature-auth
+## Detach and reconnect
+
+- **Ctrl+\** detaches only your current terminal. Work stays on the VM.
+- **Close the terminal tab** to disconnect; attach from another terminal later.
+- **`sess detach` inside the remote shell** detaches every client of that session.
+- **Ctrl+C while attached** interrupts the foreground program as usual.
+- **`exit` at the main shell prompt** ends the session.
+- **`sess rm <name>`** terminates the session; files written to the VM remain.
+
+When SSH reports a transient connection failure, sess retries with delays of 1, 2, 4, 8, then at most 15 seconds. Ctrl+C during reconnection cancels the attempt. Intentional detach and normal shell exit do not reconnect. Authentication, host-key, configuration, and unknown SSH errors are reported instead of blindly retried.
+
+A reconnect request carries the original session ID. If somebody removed the session and reused its name, reconnect stops instead of knowingly attaching you to the replacement. Missing sessions are never recreated by the sess attach command.
+
+No reconnect process remains after you close the client terminal. Run `sess a <name>` to return. The VM and zmx must stay alive: live sessions do not survive a VM reboot, backend crash, or operating-system process cleanup.
+
+## Session browser
+
+The browser refreshes asynchronously, shows host context and client counts, and has distinct loading, empty, filtered, and unreachable-host states.
+
+| Key | Action |
+| --- | --- |
+| `↑` / `↓`, `k` / `j` | Select a session |
+| `Enter` | Attach; return to the browser on detach |
+| `n` | Create and attach |
+| `x` | Remove; type the session name to confirm in the browser |
+| `/` | Filter by name |
+| `h` | Browse another host without changing your saved default |
+| `r` | Refresh |
+| `?` | Keyboard help |
+| `q`, `Esc` | Quit or cancel the current form |
+
+The terminal is handed directly to SSH while attached; sess does not wrap the shell in another TUI. `NO_COLOR` is supported. Start attachments from an ordinary laptop terminal, rather than nesting persistent terminals across SSH.
+
+## Under the hood
+
+```text
+laptop                          VM
+sess CLI / browser ── SSH ──> sess agent
+                                │
+                            zmx client
+                                │ Unix socket
+                            zmx daemon
+                                │ PTY
+                            shell + programs
 ```
 
-## How it works
+The agent speaks a versioned JSON command protocol over ordinary SSH. Requests are encoded as a single argument; names and hosts are validated rather than interpolated into shell commands. Interactive attachment uses SSH's PTY. The client never reimplements SSH authentication or terminal emulation.
 
-Everything is in `bin/sess` (one bash script, ~970 lines). The main `case` at the bottom dispatches subcommands; any other word is treated as a session name and goes to `cmd_attach`.
+zmx owns the terminal process and restores its display when a client returns. sess uses a private, account-specific runtime directory, separate from ordinary zmx sessions. A random ID is stored on each session; zmx supplies live session state, so a local cache cannot claim that an unreachable VM is empty.
 
-```
-laptop                                              dev VM (same script at ~/bin/sess)
-------                                              ----------------------------------
-sess feature-auth
-  |
-  | ~/.sess/remote has default.host?
-  |
-  no ---> cmd_attach (local)
-  |        _tmux_start: tmux has-session? else new-session -d -c $SESS_CWD tmux-init.sh
-  |        _apply_tmux_status; tmux attach-session
-  |        on return: connections += detach | exit
-  |
-  yes --> cmd_remote_attach
-           while true:
-             ssh -t user@vm "sess feature-auth"  ----->  cmd_attach (local, on the VM)
-                     ^                                     tmux attach ... returns on
-                     |  ssh exits (drop / Ctrl+b d / exit)  detach, exit, or SIGHUP
-                     |
-             print "[sess] disconnected. reconnecting in 3s... (Ctrl+C to stop)"
-             sleep 3
-```
+The remote agent is installed at an absolute path relative to `$HOME`; SSH startup PATH is not required. Session shells receive the managed binary directory on PATH so `sess detach` works there. User shell configuration can still override PATH. The reported directory is the directory at creation, not a continually tracked shell `pwd`.
 
-1. `sess new <name>` writes `~/.sess/sessions/<name>/state` (`SESS_SESSION`, `SESS_BRANCH`, `SESS_CWD=$(pwd)`, `SESS_CREATED`), appends to `log`, adds the name to `~/.sess/active-sessions`, then calls `cmd_attach`. If a remote is selected it instead `exec`s `ssh -t host "sess new <name> --local"`, so the state lives on the VM.
-2. `cmd_attach` sources `state`, and `_tmux_start` creates the tmux session on first use with `tmux new-session -d -s <name> -c <cwd> tmux-init.sh`. That init script exports `SESS_SESSION`, `SESS_BRANCH`, `SESS_DIR`, `cd`s to the saved cwd and `exec`s `$SHELL`. If the tmux session already exists it is reused.
-3. `_apply_tmux_status` runs on every attach and sets session-scoped tmux options: `status-interval 3`, session name on the left, `git rev-parse --abbrev-ref HEAD` in `#{pane_current_path}` plus `#{b:pane_current_path}` and `%H:%M` on the right. No `.tmux.conf` changes.
-4. When `tmux attach-session` returns, `cmd_attach` checks `tmux has-session`. Still there means you detached (`detach` is written to `connections`); gone means the shell exited (`exit`, and the name is dropped from `active-sessions`).
-5. The reconnect loop is `cmd_remote_attach`. It only runs when `~/.sess/remote` has a `default.host=` line. It does not look at the ssh exit code: any return, including an intentional `Ctrl+b d`, prints the disconnected message, sleeps 3 seconds and runs ssh again. `Ctrl+C` during that 3 second wait ends the loop. No `ServerAliveInterval` is set, so how fast a dead link is noticed depends on your ssh config.
-6. `sess init` (`cmd_init`) installs tmux and git with whichever of `apt-get`, `dnf`, `yum`, `apk`, `pacman`, `brew` it finds, `scp`s the running script (symlinks resolved by `_self_path`) to `~/bin/sess`, appends `~/bin` to PATH in `.bashrc`, `.zshrc` and `.profile`, checks `~/bin/sess version`, and writes `name.host=user@host` to `~/.sess/remote`.
-7. `sess up` (`cmd_up`) reads `~/.sess/active-sessions`. Locally it reattaches the last one, or if you are already inside tmux it starts all of them and `switch-client`s to the first. With a default remote it checks each name with `ssh host "test -d ~/.sess/sessions/<name>"`, then on macOS opens one Terminal.app tab per session via `osascript`, and on Linux runs `ssh -t host "sess <name>"` one after another.
-
-### Compared with
-
-| | ssh + tmux by hand | mosh | Eternal Terminal | sess |
-|---|---|---|---|---|
-| Server side | tmux | mosh-server | etserver | tmux + `~/bin/sess` (copied by `sess init`) |
-| Transport | ssh | UDP, own protocol | own TCP protocol | ssh |
-| After a drop | you re-run `ssh` and `tmux attach` | link resumes by itself | link resumes by itself | `sess` re-runs `ssh -t host "sess <name>"` every 3s |
-| Remembers cwd, branch and how each attach ended | no | no | no | yes, `~/.sess/sessions/<name>/` |
-
-## Features
-
-| Feature | Where |
-|---|---|
-| Per-session state dir: `state`, `log`, `connections`, `tmux-init.sh` | `cmd_new`, `_tmux_start`, `_log_event`, `_conn_log` |
-| `SESS_SESSION`, `SESS_BRANCH`, `SESS_DIR` exported inside every session shell | `tmux-init.sh` written by `_tmux_start` |
-| tmux status bar: session name, branch of current pane dir, dir name, HH:MM, 3s refresh | `_apply_tmux_status` |
-| Connection log with `detach` and `exit` events | `cmd_attach`, `cmd_connections` |
-| Activity log: created, attached, detached, exited, removed, diff, code | `_log_event`, `cmd_log` |
-| Remote reconnect loop, 3s retry, stop with Ctrl+C | `cmd_remote_attach` |
-| `sess init` provisions a host: package install, copy script, PATH, register | `cmd_init` |
-| Multiple remotes: `--remote <name>`, `--local`, interactive pick, `default` first when non-interactive | `_select_remote` |
-| `sess up` reattaches previously active sessions; macOS opens a Terminal tab per session | `cmd_up`, `_local_up`, `_remote_up` |
-| `sess code` opens `$SESS_EDITOR`, else `cursor`, else `code`; remote via `--remote host` then a `vscode-remote://` URI | `cmd_code` |
-| bash and zsh completion for commands, session names, git branches, remote names | `etc/bash-completion/sess`, `etc/zsh-completion/_sess` |
-| npm wrapper so `npx sess-sh` works once published; zero npm dependencies | `bin/sess-cli.js`, `package.json` |
-
-All commands (`sess help`):
-
-```
-sess new <name> [branch]        Create session + auto-attach
-                                --remote <name>  use a specific remote
-                                --local          force local, skip remotes
-sess <name>                     Attach to existing session (also: sess attach <name>)
-                                Ctrl+b d to detach
-
-sess ls                         List sessions
-sess rm <name>                  Remove session (kills tmux)
-
-sess diff <name> [path]         Git diff in session's directory
-sess log <name> [N]             Activity log (default: 20)
-sess connections <name> [N]     Connection log (detach/exit)
-sess path <name>                Print session's cwd (for scripts)
-sess code <name>                Open Cursor/VS Code for session
-sess status [name]              Session info or overall status
-
-sess ssh [args]                 SSH to configured remote VM
-sess up                         Reconnect to previously active sessions
-sess init <user@host> [name]    Provision a host (tmux+git+sess) + register it
-sess remote add [name] <host>   Register an already-provisioned remote
-sess remote ls                  List configured remotes
-sess remote rm [name]           Remove a remote
-
-sess doctor                     Check prerequisites
-sess help                       Show help
-sess version                    Show version
-```
-
-Aliases: `ls`/`list`, `rm`/`remove`, `connections`/`conn`. `[branch]` is a label stored in `state` and exported as `SESS_BRANCH`; it defaults to the current branch of the cwd (else `main`) and is never checked out.
-
-Which commands go to the VM when a `default` remote is configured:
-
-| Proxied over ssh | Run against the laptop's `~/.sess` only |
-|---|---|
-| `sess new` (unless `--local`), `sess <name>`, `sess ls`, `sess rm`, `sess up`, `sess ssh` | `sess diff`, `sess log`, `sess connections`, `sess path`, `sess status <name>`, `sess code` |
-
-## Configuration
-
-Environment variables read by `bin/sess`:
-
-| Variable | Default | Purpose |
-|---|---|---|
-| `SESS_DIR` | `~/.sess` | State directory (sessions, remotes, active list) |
-| `SESS_EDITOR` | `cursor`, then `code` | Editor command for `sess code` |
-| `SHELL` | `bash` | Shell exec'd inside a new tmux session |
-
-Set inside every session shell by `tmux-init.sh`: `SESS_SESSION`, `SESS_BRANCH`, `SESS_DIR`.
-
-Files under `SESS_DIR`:
-
-| Path | Contents |
-|---|---|
-| `remote` | `name.host=user@host` lines; `default` is the one attach/ls/rm/up/ssh use |
-| `active-sessions` | One session name per line, most recent last |
-| `sessions/<name>/state` | `SESS_SESSION`, `SESS_BRANCH`, `SESS_CWD`, `SESS_CREATED` (sourced by the script) |
-| `sessions/<name>/log` | Timestamped activity log |
-| `sessions/<name>/connections` | Timestamped `detach` / `exit` events |
-| `sessions/<name>/tmux-init.sh` | Generated init script for the tmux session |
-
-Makefile: `PREFIX` (default `/usr/local`) and `DESTDIR` control where `make install` puts the script and completions.
-
-Optional macOS hook: `etc/wakeup` is a SleepWatcher script that runs `sess up` in the background 3 seconds after wake. Install with `brew install sleepwatcher`, `cp etc/wakeup ~/.wakeup`, `chmod +x ~/.wakeup`. An already-attached remote session reconnects on its own through the retry loop; the hook is only for reopening sessions you were not attached to.
-
-## Design decisions
-
-- One script, copied as-is. `sess init` scps `bin/sess` to the VM, so every remote command is just `ssh host "sess ..."` running the same code. No daemon, no port, no protocol of its own.
-- Reconnect is a blind retry. `cmd_remote_attach` ignores the ssh exit status and reattaches after 3 seconds no matter why ssh returned. Simple and hard to break, but it means `Ctrl+b d` on a remote session comes back after 3 seconds; `Ctrl+C` during the wait is the way out.
-- State is plain text. `state` is a shell file that gets `source`d, `remote` is `key=value`, logs are one line per event. Easy to `cat`, `grep` and `scp`, and easy to hand-edit if something goes wrong.
-- tmux options are set per session with `tmux set-option -t <name>`, applied on every attach. Your `.tmux.conf` is untouched, but the status line of a sess session is always sess's.
-- The branch argument is metadata, not a checkout. Sessions are meant to be cheap labels over one working tree, which is the "no worktrees" part of the tagline.
-- Only the remote named `default` drives attach, ls, rm, up and ssh. Other remote names exist for `sess new --remote <name>` and the interactive picker.
-
-## Project layout
-
-```
-bin/sess                    The tool. Single bash script, VERSION at the top.
-bin/sess-cli.js             npm shim: execFileSync(bin/sess, argv)
-etc/bash-completion/sess    bash completion
-etc/zsh-completion/_sess    zsh completion
-etc/wakeup                  Optional macOS SleepWatcher hook that runs `sess up`
-docs/index.html             Static landing page
-test/test_sess.sh           Smoke test (uses a temp SESS_DIR, needs git)
-Makefile                    install / uninstall / test / clean
-package.json                npm package `sess-sh`, bin `sess`
-```
+Local configuration is `~/.config/sess/config.json` (`XDG_CONFIG_HOME` supported), written atomically with private permissions. `SESS_CONFIG` overrides its path. Runtime and backend overrides `SESS_RUNTIME_DIR` and `SESS_ZMX` are intended for development/testing. `SESS_SSH` selects a local SSH executable or wrapper.
 
 ## Development
 
-```bash
-make test                  # bash -n on bin/sess, loads the bash completion
-bash test/test_sess.sh     # smoke test: version, help, doctor, ls, status, path, log, rm
+```sh
+make build                          # builds client and embeds remote helpers
+make test                           # unit tests with race detector + go vet
+make integration                    # real SSH and zmx in disposable Docker
 ```
 
-`make test` does not run `test/test_sess.sh`; run both. The smoke test creates a throwaway git repo and a session state dir under `/tmp` and cleans them up on exit. It never attaches (that needs a TTY).
+Integration testing requires Docker, Python 3, and OpenSSH. It generates temporary keys/configuration, binds SSH only on loopback, and removes its test container on exit. It does not operate on your configured VMs.
 
-There is no linter or CI workflow in the repo. The version string lives in two places, `VERSION=` in `bin/sess` and `"version"` in `package.json`; bump both before `npm publish`. The published files are the `files` list in `package.json`.
+```text
+cmd/sess/                Client entry point
+cmd/sess-agent/          Small remote helper entry point
+internal/api/            Shared data types and validation
+internal/cli/            Commands and completion
+internal/tui/            Interactive session browser
+internal/transport/      System SSH and reconnect policy
+internal/backend/        zmx lifecycle and namespace
+internal/agent/          Remote request handling
+internal/provision/      Embedded helpers and verified zmx installer
+internal/store/          Local configuration
+scripts/                 Cross-build and release packaging
+test/integration/        Isolated SSH lifecycle tests
+```
 
-## Limitations
-
-Things you can see in the code today:
-
-- No `drop` event. The connection log only ever gets `detach` or `exit`; the help text and `docs/index.html` still mention `drop`. A network drop usually kills the remote script with the SSH session, so nothing is written.
-- `sess up` with a default remote reads the laptop's `~/.sess/active-sessions`, but the remote paths of `sess new` and `sess <name>` hand off to ssh before writing it. In a pure remote workflow it reports "No previously active sessions".
-- The Terminal tabs that `sess up` opens on macOS run a plain `ssh -t host 'sess <name>'`, without the retry loop. On Linux the remote `sess up` attaches one session at a time.
-- `sess diff`, `log`, `connections`, `path`, `status <name>` and `code` only read the laptop's state dir, so with a default remote they fail for sessions that exist only on the VM. Run them on the VM through `sess ssh` instead.
-- A session created with `sess new --remote dev2` can only be reattached with `sess <name>` if `dev2` is also the `default` remote.
-
-## Contributing
-
-Open an issue or PR at [deepaksilaych/sess](https://github.com/deepaksilaych/sess). Run `make test` and `bash test/test_sess.sh` before pushing.
-
-## License
-
-MIT. See [LICENSE](LICENSE).
+[Full user guide](docs/user-guide.md) · [zmx](https://github.com/neurosnap/zmx) · [MIT license](LICENSE)

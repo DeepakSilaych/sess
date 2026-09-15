@@ -1,0 +1,3 @@
+/dist/
+/internal/provision/assets/*.gz
+/test/integration/.work/
