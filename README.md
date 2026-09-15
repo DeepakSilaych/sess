@@ -2,6 +2,8 @@
 
 **A persistent SSH terminal. Powered by zmx.**
 
+[Download v0.6.0](https://github.com/DeepakSilaych/sess/releases/tag/v0.6.0) · [User guide](docs/user-guide.md) · [Website](https://deepaksilaych.github.io/sess/) · [Changelog](CHANGELOG.md)
+
 Give a terminal on your VM a name. Leave it running. Come back to the same shell, directory, and programs after you detach or lose your connection.
 
 ```sh
@@ -14,7 +16,32 @@ sess attach work
 
 Run `sess` to browse your sessions. Your terminal application handles tabs and windows; sess handles session management and reconnection.
 
-## Build and install
+## Install
+
+Download the archive for your laptop from [v0.6.0](https://github.com/DeepakSilaych/sess/releases/tag/v0.6.0):
+
+| Platform | Archive |
+| --- | --- |
+| macOS, Apple Silicon | [sess-darwin-arm64.tar.gz](https://github.com/DeepakSilaych/sess/releases/download/v0.6.0/sess-darwin-arm64.tar.gz) |
+| macOS, Intel | [sess-darwin-amd64.tar.gz](https://github.com/DeepakSilaych/sess/releases/download/v0.6.0/sess-darwin-amd64.tar.gz) |
+| Linux, ARM64 | [sess-linux-arm64.tar.gz](https://github.com/DeepakSilaych/sess/releases/download/v0.6.0/sess-linux-arm64.tar.gz) |
+| Linux, AMD64 | [sess-linux-amd64.tar.gz](https://github.com/DeepakSilaych/sess/releases/download/v0.6.0/sess-linux-amd64.tar.gz) |
+
+For example, on an Apple Silicon Mac, after downloading the archive:
+
+```sh
+tar -xzf sess-darwin-arm64.tar.gz
+mkdir -p ~/.local/bin
+install -m 755 sess ~/.local/bin/sess
+export PATH="$HOME/.local/bin:$PATH"
+sess version
+```
+
+Add the PATH line to your shell configuration if needed for future terminals. Use the corresponding archive name on another platform. [SHA256SUMS](https://github.com/DeepakSilaych/sess/releases/download/v0.6.0/SHA256SUMS) accompanies the release. Each archive includes the user documentation and all four remote helpers.
+
+The client needs OpenSSH. The VM needs working SSH access; `sess init` installs its helper and zmx. A compiler is only needed when building from source.
+
+### Build from source
 
 Requires Go 1.26.5+ to build. The installed client needs OpenSSH. Linux and macOS on AMD64 and ARM64 are supported build targets.
 
@@ -29,7 +56,7 @@ make install                       # default: ~/.local/bin
 
 Ensure the installation's `bin` directory is in your PATH. `make build` embeds the remote helpers for all four targets, so the remote VM needs neither Go nor a compiler. `go install` alone does not generate those helpers; use `make build` or a release archive.
 
-This is the zmx-based 0.6 development version. Existing tmux sessions from 0.5 continue to belong to tmux; they cannot be converted into live zmx sessions. Attach to them with tmux while finishing that work. The old `~/.sess` state is left untouched.
+Version 0.6.0 uses zmx. Existing tmux sessions from 0.5 continue to belong to tmux; they cannot be converted into live zmx sessions. Attach to them with tmux while finishing that work. The old `~/.sess` state is left untouched.
 
 ## Prepare a host
 
@@ -84,7 +111,7 @@ sess ls --json                      # {"host": "dev", "sessions": [...]}
 sess ls --quiet                     # names only; also: -q
 ```
 
-Redirected bare `sess` prints a list. `new` without `--detach` and `attach` require an interactive terminal. Errors go to stderr with a nonzero exit status. JSON list output includes stable session IDs, client counts, creation time, initial directory, PID, and attached/detached state.
+Redirected bare `sess` prints a list. `new` without `--detach` and `attach` require an interactive terminal. Errors go to stderr with a nonzero exit status. JSON list output includes stable session IDs, client counts, creation time, backend-reported directory, PID, and attached/detached state.
 
 ## Detach and reconnect
 
@@ -102,6 +129,10 @@ A reconnect request carries the original session ID. If somebody removed the ses
 No reconnect process remains after you close the client terminal. Run `sess a <name>` to return. The VM and zmx must stay alive: live sessions do not survive a VM reboot, backend crash, or operating-system process cleanup.
 
 ## Session browser
+
+![Session browser connected to a test VM](docs/assets/session-browser.png)
+
+*Captured from the real SSH integration test. Names shown are test sessions.*
 
 The browser refreshes asynchronously, shows host context and client counts, and has distinct loading, empty, filtered, and unreachable-host states.
 
@@ -136,7 +167,7 @@ The agent speaks a versioned JSON command protocol over ordinary SSH. Requests a
 
 zmx owns the terminal process and restores its display when a client returns. sess uses a private, account-specific runtime directory, separate from ordinary zmx sessions. A random ID is stored on each session; zmx supplies live session state, so a local cache cannot claim that an unreachable VM is empty.
 
-The remote agent is installed at an absolute path relative to `$HOME`; SSH startup PATH is not required. Session shells receive the managed binary directory on PATH so `sess detach` works there. User shell configuration can still override PATH. The reported directory is the directory at creation, not a continually tracked shell `pwd`.
+The remote agent is installed at an absolute path relative to `$HOME`; SSH startup PATH is not required. Session shells receive the managed binary directory on PATH so `sess detach` works there. User shell configuration can still override PATH. The displayed directory comes from zmx. It starts at the creation directory and can update when the shell reports directory changes using OSC 7. Run `pwd` in the shell for its current directory.
 
 Local configuration is `~/.config/sess/config.json` (`XDG_CONFIG_HOME` supported), written atomically with private permissions. `SESS_CONFIG` overrides its path. Runtime and backend overrides `SESS_RUNTIME_DIR` and `SESS_ZMX` are intended for development/testing. `SESS_SSH` selects a local SSH executable or wrapper.
 
@@ -165,4 +196,12 @@ scripts/                 Cross-build and release packaging
 test/integration/        Isolated SSH lifecycle tests
 ```
 
-[Full user guide](docs/user-guide.md) · [zmx](https://github.com/neurosnap/zmx) · [MIT license](LICENSE)
+## More documentation
+
+- [User guide](docs/user-guide.md): setup, commands, detach, reconnect, and persistence.
+- [Troubleshooting](docs/troubleshooting.md): authentication, missing sessions, PATH, and backend versions.
+- [Contributing](CONTRIBUTING.md): local builds, tests, and project conventions.
+- [Release process](docs/releasing.md): manual tagging, archives, and verification.
+- [Changelog](CHANGELOG.md): version history and migration notes.
+
+[zmx](https://github.com/neurosnap/zmx) · [MIT license](LICENSE)

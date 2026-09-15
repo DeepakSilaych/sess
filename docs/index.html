@@ -5,13 +5,19 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="description" content="sess is a persistent SSH terminal powered by zmx. Name a session on your VM, detach, and return to the same shell.">
 <title>sess — A persistent SSH terminal</title>
+<link rel="canonical" href="https://deepaksilaych.github.io/sess/">
+<meta property="og:title" content="sess — A persistent SSH terminal">
+<meta property="og:description" content="Named SSH terminals that stay on your VM. Powered by zmx, with a CLI and session browser.">
+<meta property="og:image" content="https://deepaksilaych.github.io/sess/assets/session-browser.png">
+<meta property="og:url" content="https://deepaksilaych.github.io/sess/">
+<meta name="twitter:card" content="summary_large_image">
 <style>
 :root{color-scheme:dark;--bg:#11151c;--surface:#1a202b;--ink:#eef3fa;--muted:#9aa8bb;--line:#2b3442;--accent:#65d9f4}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.65 system-ui,sans-serif}main{max-width:1000px;margin:auto;padding:0 28px}nav{display:flex;justify-content:space-between;align-items:center;padding:28px 0;border-bottom:1px solid var(--line)}a{color:var(--accent);text-underline-offset:5px}.brand{font:700 25px ui-monospace,monospace;color:var(--ink);text-decoration:none}header{padding:86px 0 48px;max-width:760px}.eyebrow{color:var(--accent);font:13px ui-monospace,monospace;letter-spacing:.12em;text-transform:uppercase}h1{font-size:clamp(42px,7vw,76px);line-height:1.08;letter-spacing:-.045em;margin:20px 0 28px}h2{font-size:26px;letter-spacing:-.02em}p{color:var(--muted)}.intro{font-size:21px;max-width:650px}.terminal{border:1px solid var(--line);border-radius:12px;background:var(--surface);overflow:hidden;margin:24px 0 48px}.terminal-head{padding:12px 20px;border-bottom:1px solid var(--line);font:12px ui-monospace,monospace;color:var(--muted)}pre{margin:0;padding:24px;overflow:auto;font:15px/1.9 ui-monospace,monospace}code{font-family:ui-monospace,monospace}.comment{color:var(--muted)}.prompt{color:var(--accent)}.grid{display:grid;grid-template-columns:1fr 1fr;gap:36px;margin:44px 0 64px}section{border-top:1px solid var(--line);padding:30px 0}table{border-collapse:collapse;width:100%;font-size:15px}td,th{padding:13px 0;text-align:left;border-bottom:1px solid var(--line)}td:last-child{color:var(--muted)}footer{padding:40px 0;color:var(--muted);font-size:14px}.note{font-size:14px}@media(max-width:650px){.grid{grid-template-columns:1fr;gap:0}header{padding-top:50px}pre{font-size:12px;padding:18px}td:first-child{padding-right:14px}}
 </style>
 </head>
 <body><main>
 <nav><a class="brand" href="#">sess<span style="color:var(--accent)">_</span></a><a href="https://github.com/DeepakSilaych/sess">Source &amp; installation ↗</a></nav>
-<header><div class="eyebrow">Powered by zmx</div><h1>A persistent<br>SSH terminal.</h1><p class="intro">Your work stays on the VM. Name a terminal, disconnect, and come back to the same running shell.</p><p class="note">The zmx-based 0.6 version is in development. Build instructions are in the repository.</p></header>
+<header><div class="eyebrow">Powered by zmx</div><h1>A persistent<br>SSH terminal.</h1><p class="intro">Your work stays on the VM. Name a terminal, disconnect, and come back to the same running shell.</p><p class="note"><a href="https://github.com/DeepakSilaych/sess/releases/tag/v0.6.0">Download v0.6.0</a> · macOS &amp; Linux · ARM64 &amp; AMD64</p></header>
 <div class="terminal"><div class="terminal-head">YOUR LAPTOP → DEV VM</div><pre><span class="prompt">$</span> sess init dev
 <span class="prompt">$</span> sess set --host dev
 <span class="prompt">$</span> sess new work
@@ -20,6 +26,7 @@
 
 <span class="prompt">$</span> sess attach work</pre></div>
 <div class="grid"><div><h2>Pick up where you left off.</h2><p>Detach intentionally or lose your network connection. zmx holds your terminal on the VM; sess gets you back into it. Automatic reconnection stops when you intentionally detach.</p></div><div><h2>Your terminal, your layout.</h2><p>Use your terminal app for tabs and windows. Run <code>sess</code> for a searchable session browser, then attach directly to your remote shell.</p></div></div>
+<section><h2>Your sessions, in one place.</h2><img src="assets/session-browser.png" width="1140" height="818" style="width:100%;height:auto;border:1px solid var(--line);border-radius:12px" alt="sess browser showing four sessions on a test VM, with one attached and three detached"><p class="note">Captured from a real SSH integration test. Press Enter to attach, n to create, or / to filter.</p></section>
 <section><h2>A small command set.</h2><table><thead><tr><th>Command</th><th>What it does</th></tr></thead><tbody>
 <tr><td><code>sess init &lt;host&gt;</code></td><td>Prepare sess and zmx on your VM</td></tr>
 <tr><td><code>sess set --host &lt;host&gt;</code></td><td>Save your default SSH destination</td></tr>
@@ -29,5 +36,5 @@
 <tr><td><code>sess remove &lt;name&gt;</code></td><td>Terminate a session · shortcut <code>rm</code></td></tr>
 </tbody></table><p>Use <code>--host</code> or <code>-h</code> to override the host for one command. SSH aliases and <code>user@host</code> work throughout. Use <code>--help</code> for help.</p></section>
 <section><h2>SSH connects. zmx persists.</h2><p>sess uses system SSH and installs a small helper on the VM. Each persistent terminal lives under zmx, separately from its SSH connection. No extra network port or laptop background service is needed.</p><p>Live sessions depend on the VM and backend staying alive. A VM reboot ends its processes; persistence is not a backup or automatic job recovery.</p><a href="https://github.com/DeepakSilaych/sess/blob/main/docs/user-guide.md">Read the full user guide ↗</a></section>
-<footer>sess · macOS &amp; Linux · MIT license</footer>
+<footer>sess v0.6.0 · macOS &amp; Linux · <a href="https://github.com/DeepakSilaych/sess/blob/main/LICENSE">MIT license</a> · <a href="https://github.com/DeepakSilaych/sess/blob/main/CHANGELOG.md">Changelog</a></footer>
 </main></body></html>

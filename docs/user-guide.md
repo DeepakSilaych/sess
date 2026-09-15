@@ -4,7 +4,7 @@
 
 Create a named terminal on your VM, work in it, and return to the same running shell later. Your commands and processes run on the VM. Your laptop provides the keyboard and display.
 
-> **Version:** This guide covers the zmx-based 0.6 development version. See the [README](../README.md#build-and-install) for building and installing. Existing 0.5 tmux sessions remain separate.
+> **Version:** This guide covers sess **0.6.0**, powered by zmx **0.8.1**. See the [README](../README.md#install) for building and installing. Existing 0.5 tmux sessions remain separate.
 
 ## Quick start
 
@@ -107,7 +107,7 @@ sess ls
 
 ### Override the host for one command
 
-Every session command accepts `--host` or `-h`:
+`new`, `attach`, `remove`, and `ls` accept `--host` or `-h`. The browser and `doctor` accept them too:
 
 ```bash
 sess new tests --host staging
@@ -124,7 +124,7 @@ The selection rule is always:
 2. Otherwise, use the saved default host.
 3. If neither exists, explain how to set or provide a host and stop.
 
-sess does not guess a destination or fall back to a local session. Output identifies the selected host, including before attachment and removal.
+sess does not guess a destination or fall back to a local session. Human-readable output identifies the selected host. JSON output includes it in the `host` field; `ls --quiet` prints names only.
 
 `-h` means **host** throughout sess. Use `--help` for help.
 
@@ -236,13 +236,13 @@ The list shows live sess-managed sessions on the selected host, including sessio
 ```text
 Host: dev
 
-NAME          CLIENTS
-api           1
-tests         0
-experiments   0
+NAME          STATE      CLIENTS   AGE   DIRECTORY
+api           attached   1         2h    /home/deepak
+experiments   detached   0         5m    /home/deepak
+tests         detached   0         1h    /home/deepak
 ```
 
-The command also shows attached/detached state, age, and the initial directory. These are illustrative output columns. Zero clients means the session is running with nobody attached.
+These are illustrative values. The directory comes from zmx and may update when your shell reports directory changes; it is not guaranteed to track every `cd`. Zero clients means the session is running with nobody attached.
 
 A session whose main shell has exited is no longer a live session. sess does not retain a stopped-session definition that can restore its processes.
 
@@ -276,7 +276,7 @@ While an attachment is open, sess manages reconnection for you:
 
 1. The SSH connection drops or becomes unresponsive.
 2. sess displays the host, session name, and reconnecting status.
-3. sess retries transient connection failures with a delay between attempts.
+3. sess retries transient connection failures after 1, 2, 4, 8, then at most 15 seconds between attempts.
 4. When SSH works again, sess attaches to the same existing session.
 
 Press **Ctrl+C while the reconnect message is displayed** to stop retrying and return to your local shell. This does not remove the remote session.
@@ -371,6 +371,45 @@ sess version                # Show the installed version
 
 Start sess attachments from an ordinary laptop terminal. If already inside a persistent terminal, detach before starting another attachment; nested zmx sessions across SSH have documented display limitations. [zmx known issues](https://github.com/neurosnap/zmx#known-issues).
 
+### Browser controls
+
+| Key | Action |
+| --- | --- |
+| `↑` / `↓` or `k` / `j` | Move selection |
+| `Enter` | Attach, or submit the current form |
+| `n` | Create and attach |
+| `x` | Remove the selected session after typing its name |
+| `/` | Filter sessions by name |
+| `h` | Browse another host; keep the saved default unchanged |
+| `r` | Refresh the list |
+| `?` | Show keyboard help |
+| `Esc` | Cancel a form, or leave the browser |
+| `q` | Leave the browser when not editing a form |
+
+The browser requires a terminal at least 44 columns wide and 16 rows tall. It refreshes in the background. It hands the terminal directly to SSH while attached and returns on detach. Set `NO_COLOR` to disable its colors.
+
+## 12. Configuration and shell completion
+
+The default host is stored on your laptop in `~/.config/sess/config.json`, or under `XDG_CONFIG_HOME` when set. `SESS_CONFIG` overrides the complete configuration file path. It is JSON, written atomically with private permissions.
+
+Normal users only need `sess set --host`. For development, `SESS_SSH` selects an SSH executable or wrapper, and the remote overrides `SESS_ZMX` and `SESS_RUNTIME_DIR` select a backend executable and private runtime directory. These are not forwarded automatically from your laptop to the VM.
+
+Generate completion for your shell:
+
+```sh
+sess completion bash
+sess completion zsh
+sess completion fish
+```
+
+The commands print completion scripts. Install them using your shell's completion conventions; `make install` from source installs bash and zsh scripts under its prefix. Session-name completion queries the selected host with a short timeout.
+
+The remote helper installed by `init` is a small internal program, not the full laptop CLI. Run management commands on your laptop. Inside a remote session, it provides `sess detach`. If your shell configuration overwrites PATH, the equivalent full-path command is:
+
+```sh
+~/.local/share/sess/bin/sess detach
+```
+
 ## Command reference
 
 | Command | Alias | Purpose |
@@ -386,7 +425,10 @@ Start sess attachments from an ordinary laptop terminal. If already inside a per
 | `sess doctor` | — | Check the selected host and dependencies |
 | `sess --help` | — | Show help |
 | `sess version` | — | Show version |
+| `sess completion <shell>` | — | Generate a completion script |
 
 `new`, `attach`, `remove`, `ls`, the browser, and `doctor` accept `--host <host>` or `-h <host>` without changing the saved default.
 
 **Daily loop: create → work → detach → attach. Remove when finished.**
+
+[Installation](../README.md#install) · [Troubleshooting](troubleshooting.md) · [Changelog](../CHANGELOG.md)
