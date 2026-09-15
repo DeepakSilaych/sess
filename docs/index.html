@@ -35,6 +35,13 @@
 <tr><td><code>sess ls</code></td><td>List sessions · <code>--json</code> for scripts</td></tr>
 <tr><td><code>sess remove &lt;name&gt;</code></td><td>Terminate a session · shortcut <code>rm</code></td></tr>
 </tbody></table><p>Use <code>--host</code> or <code>-h</code> to override the host for one command. SSH aliases and <code>user@host</code> work throughout. Use <code>--help</code> for help.</p></section>
+<section><h2>Install on your laptop.</h2><pre><code>brew install deepaksilaych/tap/sess
+
+# Or run with Node.js 22+
+npx sess-cli
+
+# Or install a permanent command
+npm install -g sess-cli</code></pre><p>macOS and Linux, ARM64 and AMD64. The npm launcher verifies and caches the official release binary on first run.</p></section>
 <section><h2>SSH connects. zmx persists.</h2><p>sess uses system SSH and installs a small helper on the VM. Each persistent terminal lives under zmx, separately from its SSH connection. No extra network port or laptop background service is needed.</p><p>Live sessions depend on the VM and backend staying alive. A VM reboot ends its processes; persistence is not a backup or automatic job recovery.</p><a href="https://github.com/DeepakSilaych/sess/blob/main/docs/user-guide.md">Read the full user guide ↗</a></section>
 <footer>sess v0.6.0 · macOS &amp; Linux · <a href="https://github.com/DeepakSilaych/sess/blob/main/LICENSE">MIT license</a> · <a href="https://github.com/DeepakSilaych/sess/blob/main/CHANGELOG.md">Changelog</a></footer>
 </main></body></html>

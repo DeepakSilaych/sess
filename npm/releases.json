@@ -1,0 +1,9 @@
+{
+  "version": "0.6.0",
+  "sha256": {
+    "sess-darwin-amd64.tar.gz": "ee0b735826e26f8a05ecca656168b4ac528f16202b40fd0e60ad9544f3edf2c2",
+    "sess-darwin-arm64.tar.gz": "f0e92cea5714ce207cbc4bf4b148d563eaf85387743b3fb300715b66d496a91e",
+    "sess-linux-amd64.tar.gz": "b2ed459e669b0baaa862827cd0d6d5d7d0ea33da1a3ae08364a2ad3807b6ca03",
+    "sess-linux-arm64.tar.gz": "da6bc68f08035c4d01a2c575848fcb42132c67f6f868e134a76a6888f5158b00"
+  }
+}

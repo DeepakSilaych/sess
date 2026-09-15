@@ -1,0 +1,28 @@
+{
+  "name": "sess-cli",
+  "version": "0.6.0",
+  "description": "Persistent SSH terminals powered by zmx",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DeepakSilaych/sess.git"
+  },
+  "homepage": "https://deepaksilaych.github.io/sess/",
+  "bin": {
+    "sess": "npm/sess.cjs"
+  },
+  "files": [
+    "npm/",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test npm/*.test.cjs"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

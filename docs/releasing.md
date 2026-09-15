@@ -66,3 +66,16 @@ Do not move an already-published tag to another commit. Publish a new patch vers
 Verify that all four download links work, the uploaded checksum file matches the archives, and the repository description, topics, and homepage reflect the current product. Keep the user-facing release notes clear about migration and platform coverage.
 
 The existing GitHub Pages site serves `docs/` from `main`. Documentation changes there use the repository's Pages configuration; do not add a workflow to publish the site.
+
+## Homebrew and npm
+
+Keep `npm/releases.json` aligned with the GitHub release version and its four archive checksums. The npm wrapper version in `package.json` may increase independently when only the launcher changes; `npm/releases.json` selects the actual sess binary version.
+
+After publishing the binary release:
+
+1. Update `Formula/sess.rb` in [homebrew-tap](https://github.com/DeepakSilaych/homebrew-tap) with the version, URLs, and all four checksums. Run `brew style deepaksilaych/tap/sess`, install it, and run `brew test deepaksilaych/tap/sess` before pushing.
+2. Run `npm test`, then `npm pack --dry-run`. Test the packed archive with `npx --yes --package /absolute/path/to/sess-cli-VERSION.tgz sess version`.
+3. Authenticate locally with `npm login`, then run `npm publish --access public`. Complete npm's authentication challenge if requested. No CI workflow is used.
+4. Verify `npm view sess-cli version` and `npx --yes sess-cli@VERSION version` from a fresh cache.
+
+The package provides the executable name `sess`; npm resolves the single bin entry when users run `npx sess-cli`. It has no install scripts or runtime dependencies. The launcher verifies the release archive before extracting the executable and passes the terminal directly to sess.

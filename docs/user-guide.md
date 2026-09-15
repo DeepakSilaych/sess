@@ -6,6 +6,18 @@ Create a named terminal on your VM, work in it, and return to the same running s
 
 > **Version:** This guide covers sess **0.6.0**, powered by zmx **0.8.1**. See the [README](../README.md#install) for building and installing. Existing 0.5 tmux sessions remain separate.
 
+## Install on your laptop
+
+```sh
+brew install deepaksilaych/tap/sess
+# Or install through npm (Node.js 22+):
+npm install -g sess-cli
+```
+
+You can also run `npx sess-cli` without a global installation. Replace `sess` with `npx sess-cli` in the laptop commands below, for example `npx sess-cli init dev`. Inside the remote session, use `sess detach` as usual; the remote helper is installed by `init`.
+
+The npm launcher fetches the official release binary for your platform on first run, verifies a pinned checksum, and caches it under `${XDG_CACHE_HOME:-~/.cache}/sess/npm/`. Homebrew installs the same release binary and shell completions. Both support macOS and Linux on ARM64 and AMD64. See the [README](../README.md#install) for direct binary downloads.
+
 ## Quick start
 
 Run these commands on your laptop after installing sess:

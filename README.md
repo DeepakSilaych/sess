@@ -18,6 +18,37 @@ Run `sess` to browse your sessions. Your terminal application handles tabs and w
 
 ## Install
 
+### Homebrew
+
+```sh
+brew install deepaksilaych/tap/sess
+```
+
+Update with `brew update && brew upgrade sess`. Shell completions are installed automatically.
+
+### npm / npx
+
+Requires Node.js 22+:
+
+```sh
+npx sess-cli --help
+npx sess-cli init dev
+npx sess-cli set --host dev
+npx sess-cli new work
+npx sess-cli                         # open the session browser
+```
+
+For a permanent `sess` command:
+
+```sh
+npm install -g sess-cli
+sess --help
+```
+
+The package downloads the matching official binary on first run and verifies its pinned SHA-256 checksum. Later runs use the cached binary in `${XDG_CACHE_HOME:-~/.cache}/sess/npm/`. Node.js runs on your laptop only; the VM does not need npm or Node.js. The npm package is named `sess-cli`; `npx sess` refers to a different project.
+
+### Download a binary
+
 Download the archive for your laptop from [v0.6.0](https://github.com/DeepakSilaych/sess/releases/tag/v0.6.0):
 
 | Platform | Archive |

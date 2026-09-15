@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Homebrew installation through `deepaksilaych/tap/sess`, including shell completions.
+- `sess-cli` npm launcher for `npx sess-cli` and global installation, with verified platform downloads and a local cache.
+
 ## [0.6.0](https://github.com/DeepakSilaych/sess/releases/tag/v0.6.0) — 2026-09-15
 
 The first tagged release of the zmx-based sess: a persistent SSH terminal with a Go CLI and interactive session browser.
