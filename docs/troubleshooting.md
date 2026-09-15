@@ -102,7 +102,7 @@ The installed remote program is a helper, not the full client. Run management co
 
 ## Unsupported zmx version
 
-sess 0.6.0 is paired with zmx 0.8.1. It deliberately refuses to operate with a different managed backend version or silently replace it. Backend changes can affect live sessions. Finish that work before changing the backend installation.
+sess 0.7.0 is paired with zmx 0.8.1. It deliberately refuses to operate with a different managed backend version or silently replace it. Backend changes can affect live sessions. Finish that work before changing the backend installation.
 
 An ordinary zmx installation uses a separate namespace and is not managed by sess. Do not delete runtime socket files to terminate sessions; use the lifecycle commands.
 
@@ -126,3 +126,7 @@ The new client does not import `~/.sess` or convert running processes. Prepare t
 Include `sess version`, the command, the selected platform, whether the problem involves a TUI attachment or plain command, and the relevant `sess doctor` output. Remove hostnames or account information you do not want public. Never include private keys or credentials.
 
 [Open an issue](https://github.com/DeepakSilaych/sess/issues) · [User guide](user-guide.md)
+
+## Image drops and uploads
+
+See [file transfer troubleshooting](file-transfer.md#troubleshooting) for terminal paste compatibility, remote helper updates, and upload errors.

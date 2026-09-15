@@ -4,7 +4,7 @@
 
 Create a named terminal on your VM, work in it, and return to the same running shell later. Your commands and processes run on the VM. Your laptop provides the keyboard and display.
 
-> **Version:** This guide covers sess **0.6.0**, powered by zmx **0.8.1**. See the [README](../README.md#install) for building and installing. Existing 0.5 tmux sessions remain separate.
+> **Version:** This guide covers sess **0.7.0**, powered by zmx **0.8.1**. See the [README](../README.md#install) for building and installing. Existing 0.5 tmux sessions remain separate.
 
 ## Install on your laptop
 
@@ -398,7 +398,7 @@ Start sess attachments from an ordinary laptop terminal. If already inside a per
 | `Esc` | Cancel a form, or leave the browser |
 | `q` | Leave the browser when not editing a form |
 
-The browser requires a terminal at least 44 columns wide and 16 rows tall. It refreshes in the background. It hands the terminal directly to SSH while attached and returns on detach. Set `NO_COLOR` to disable its colors.
+The browser requires a terminal at least 44 columns wide and 16 rows tall. It refreshes in the background. It uses a local PTY bridge for SSH and image pastes while attached, then returns on detach. Set `NO_COLOR` to disable its colors.
 
 ## 12. Configuration and shell completion
 
@@ -444,3 +444,15 @@ The remote helper installed by `init` is a small internal program, not the full 
 **Daily loop: create → work → detach → attach. Remove when finished.**
 
 [Installation](../README.md#install) · [Troubleshooting](troubleshooting.md) · [Changelog](../CHANGELOG.md)
+
+## File transfer and Claude Code images
+
+After upgrading to 0.7.0, run `sess init <host>` to update the remote helper, then attach normally. When Claude Code enables bracketed paste mode, dropping supported local images can upload them and insert their remote paths without submitting the prompt.
+
+```sh
+sess upload ~/Desktop/screenshot.png
+sess upload ./report.pdf -h dev
+sess a work --no-upload-images
+```
+
+Uploads are limited to 25 MiB per file; automatic image pastes allow up to eight files totaling 25 MiB. Files remain under `~/.local/share/sess/uploads/` on the VM until you delete them. Plain unmarked drops and clipboard image pixels require the explicit upload fallback. See the [file transfer guide](file-transfer.md) for compatibility, storage, and cancellation details.

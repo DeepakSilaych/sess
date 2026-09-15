@@ -1,9 +1,15 @@
 # Changelog
 
-## Unreleased
+## [0.7.0](https://github.com/DeepakSilaych/sess/releases/tag/v0.7.0) — 2026-09-15
 
 - Homebrew installation through `deepaksilaych/tap/sess`, including shell completions.
 - `sess-cli` npm launcher for `npx sess-cli` and global installation, with verified platform downloads and a local cache.
+
+- `sess upload` transfers files over SSH with private permissions, unique destinations, size checks, and SHA-256 verification.
+- Automatic image upload for standard bracketed pastes during attachment, with quoted paths, multiple images, Ctrl+C cancellation, and `--no-upload-images`.
+- Local PTY forwarding preserves resizing, detach, and reconnect while handling pasted images.
+
+Update the VM helper with `sess init <host>` after upgrading. Plain unmarked drops and clipboard image pixels are not automatically uploaded. Uploaded files remain on the VM until explicitly removed.
 
 ## [0.6.0](https://github.com/DeepakSilaych/sess/releases/tag/v0.6.0) — 2026-09-15
 

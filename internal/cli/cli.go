@@ -23,11 +23,13 @@ import (
 
 func New(out, errout io.Writer) *cobra.Command {
 	var host string
+	var noUploadImages bool
 	root := &cobra.Command{Use: "sess", Short: "Persistent SSH terminals, powered by zmx", Long: "sess keeps named terminals running on your VM.\nCreate a session, detach, and return to the same shell later.", SilenceUsage: true, SilenceErrors: true}
 	root.SetOut(out)
 	root.SetErr(errout)
 	root.PersistentFlags().StringVarP(&host, "host", "h", "", "SSH destination or alias (overrides the saved default)")
 	root.PersistentFlags().Bool("help", false, "Show help")
+	root.PersistentFlags().BoolVar(&noUploadImages, "no-upload-images", false, "Pass pasted image paths through without uploading")
 	root.SetHelpCommand(&cobra.Command{Use: "help [command]", Short: "Show help for a command", RunE: func(c *cobra.Command, args []string) error {
 		target, _, e := root.Find(args)
 		if e != nil {
@@ -45,6 +47,7 @@ func New(out, errout io.Writer) *cobra.Command {
 	interactive := func() bool { return term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stdout.Fd())) }
 	attach := func(ctx context.Context, c *transport.Client, s api.Session) error {
 		fmt.Fprintf(errout, "Attaching to %s / %s · Ctrl+\\ to detach\n", c.Host, s.Name)
+		c.NoUploadImages = noUploadImages
 		e := c.Attach(ctx, s, errout)
 		if e == nil {
 			fmt.Fprintf(errout, "\nConnection ended · %s / %s\n", c.Host, s.Name)
@@ -155,6 +158,20 @@ func New(out, errout io.Writer) *cobra.Command {
 			return e
 		}
 		return attach(cmd.Context(), c, s)
+	}})
+	root.AddCommand(&cobra.Command{Use: "upload <file> [file...]", Short: "Upload local files and print their remote paths", Args: cobra.MinimumNArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		c, e := client()
+		if e != nil {
+			return e
+		}
+		for _, name := range args {
+			dst, e := c.Upload(cmd.Context(), name)
+			if e != nil {
+				return e
+			}
+			fmt.Fprintln(out, dst)
+		}
+		return nil
 	}})
 	root.AddCommand(&cobra.Command{Use: "remove <name>", Aliases: []string{"rm"}, Short: "Terminate a session and its programs", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		if e := api.ValidateName(args[0]); e != nil {

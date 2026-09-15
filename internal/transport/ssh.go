@@ -17,13 +17,16 @@ import (
 
 const AgentPath = `"$HOME/.local/share/sess/bin/sess"`
 
-type Client struct{ Host string }
+type Client struct {
+	Host           string
+	NoUploadImages bool
+}
 
 func New(host string) (*Client, error) {
 	if e := api.ValidateHost(host); e != nil {
 		return nil, e
 	}
-	return &Client{host}, nil
+	return &Client{Host: host}, nil
 }
 func (c *Client) Command(ctx context.Context, tty, batch bool, remote string) *exec.Cmd {
 	bin := os.Getenv("SESS_SSH")
@@ -140,7 +143,14 @@ func (c *Client) Attach(ctx context.Context, s api.Session, notice io.Writer) er
 		cmd.Stdin = os.Stdin
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = io.MultiWriter(notice, &detail)
-		e := cmd.Run()
+		var e error
+		if !c.NoUploadImages && term.IsTerminal(int(os.Stdin.Fd())) {
+			cmd.Stdin = nil
+			cmd.Stdout = nil
+			e = c.runTerminal(ctx, cmd, notice)
+		} else {
+			e = cmd.Run()
+		}
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}

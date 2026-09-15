@@ -2,7 +2,7 @@
 
 **A persistent SSH terminal. Powered by zmx.**
 
-[Download v0.6.0](https://github.com/DeepakSilaych/sess/releases/tag/v0.6.0) · [User guide](docs/user-guide.md) · [Website](https://deepaksilaych.github.io/sess/) · [Changelog](CHANGELOG.md)
+[Download v0.7.0](https://github.com/DeepakSilaych/sess/releases/tag/v0.7.0) · [User guide](docs/user-guide.md) · [Website](https://deepaksilaych.github.io/sess/) · [Changelog](CHANGELOG.md)
 
 Give a terminal on your VM a name. Leave it running. Come back to the same shell, directory, and programs after you detach or lose your connection.
 
@@ -49,14 +49,14 @@ The package downloads the matching official binary on first run and verifies its
 
 ### Download a binary
 
-Download the archive for your laptop from [v0.6.0](https://github.com/DeepakSilaych/sess/releases/tag/v0.6.0):
+Download the archive for your laptop from [v0.7.0](https://github.com/DeepakSilaych/sess/releases/tag/v0.7.0):
 
 | Platform | Archive |
 | --- | --- |
-| macOS, Apple Silicon | [sess-darwin-arm64.tar.gz](https://github.com/DeepakSilaych/sess/releases/download/v0.6.0/sess-darwin-arm64.tar.gz) |
-| macOS, Intel | [sess-darwin-amd64.tar.gz](https://github.com/DeepakSilaych/sess/releases/download/v0.6.0/sess-darwin-amd64.tar.gz) |
-| Linux, ARM64 | [sess-linux-arm64.tar.gz](https://github.com/DeepakSilaych/sess/releases/download/v0.6.0/sess-linux-arm64.tar.gz) |
-| Linux, AMD64 | [sess-linux-amd64.tar.gz](https://github.com/DeepakSilaych/sess/releases/download/v0.6.0/sess-linux-amd64.tar.gz) |
+| macOS, Apple Silicon | [sess-darwin-arm64.tar.gz](https://github.com/DeepakSilaych/sess/releases/download/v0.7.0/sess-darwin-arm64.tar.gz) |
+| macOS, Intel | [sess-darwin-amd64.tar.gz](https://github.com/DeepakSilaych/sess/releases/download/v0.7.0/sess-darwin-amd64.tar.gz) |
+| Linux, ARM64 | [sess-linux-arm64.tar.gz](https://github.com/DeepakSilaych/sess/releases/download/v0.7.0/sess-linux-arm64.tar.gz) |
+| Linux, AMD64 | [sess-linux-amd64.tar.gz](https://github.com/DeepakSilaych/sess/releases/download/v0.7.0/sess-linux-amd64.tar.gz) |
 
 For example, on an Apple Silicon Mac, after downloading the archive:
 
@@ -68,7 +68,7 @@ export PATH="$HOME/.local/bin:$PATH"
 sess version
 ```
 
-Add the PATH line to your shell configuration if needed for future terminals. Use the corresponding archive name on another platform. [SHA256SUMS](https://github.com/DeepakSilaych/sess/releases/download/v0.6.0/SHA256SUMS) accompanies the release. Each archive includes the user documentation and all four remote helpers.
+Add the PATH line to your shell configuration if needed for future terminals. Use the corresponding archive name on another platform. [SHA256SUMS](https://github.com/DeepakSilaych/sess/releases/download/v0.7.0/SHA256SUMS) accompanies the release. Each archive includes the user documentation and all four remote helpers.
 
 The client needs OpenSSH. The VM needs working SSH access; `sess init` installs its helper and zmx. A compiler is only needed when building from source.
 
@@ -87,7 +87,7 @@ make install                       # default: ~/.local/bin
 
 Ensure the installation's `bin` directory is in your PATH. `make build` embeds the remote helpers for all four targets, so the remote VM needs neither Go nor a compiler. `go install` alone does not generate those helpers; use `make build` or a release archive.
 
-Version 0.6.0 uses zmx. Existing tmux sessions from 0.5 continue to belong to tmux; they cannot be converted into live zmx sessions. Attach to them with tmux while finishing that work. The old `~/.sess` state is left untouched.
+Version 0.7.0 uses zmx. Existing tmux sessions from 0.5 continue to belong to tmux; they cannot be converted into live zmx sessions. Attach to them with tmux while finishing that work. The old `~/.sess` state is left untouched.
 
 ## Prepare a host
 
@@ -113,6 +113,7 @@ Use SSH keys available to `ssh-agent` for session operations and reconnecting. P
 | `sess attach <name>` | `sess a <name>` | Attach to an existing session |
 | `sess remove <name>` | `sess rm <name>` | End the session and its programs |
 | `sess ls` | | List live sessions |
+| `sess upload <file> [file...]` | | Upload local files and print remote paths |
 | `sess detach` | | Inside a session, detach all attached terminals |
 | `sess` | | Open the interactive session browser |
 | `sess doctor` | | Check SSH and remote dependencies |
@@ -159,6 +160,25 @@ A reconnect request carries the original session ID. If somebody removed the ses
 
 No reconnect process remains after you close the client terminal. Run `sess a <name>` to return. The VM and zmx must stay alive: live sessions do not survive a VM reboot, backend crash, or operating-system process cleanup.
 
+## Images and file uploads
+
+Run `sess init <host>` once after upgrading to 0.7.0 to update the VM helper. Attach normally, start Claude Code on the VM, and drop a local PNG, JPEG, GIF, or WebP image into its prompt.
+
+When the terminal sends the dropped paths as a **bracketed paste**, sess uploads the images over SSH and inserts their remote paths. It does not press Enter. Spaces, shell-quoted filenames, and up to eight images per paste are supported, with a combined limit of 25 MiB. Ctrl+C cancels an upload in progress.
+
+This uses the standard terminal paste protocol, with no terminal-specific plugin. A terminal that sends an unmarked path cannot be reliably distinguished from ordinary typing. For that case, or for other file types, run this in another local terminal:
+
+```sh
+sess upload ~/Desktop/screenshot.png
+sess upload ./report.pdf --host dev
+```
+
+Copy the printed remote path into Claude Code. Each file may be up to 25 MiB. `upload` uses the default host unless overridden; it does not require an attached session.
+
+Files are stored in unique directories under `~/.local/share/sess/uploads/` on the VM, with private directory/file permissions and a verified SHA-256 digest. They remain after detach, session removal, and VM reboot; delete them on the VM when no longer needed. No project file is overwritten.
+
+Use `sess a work --no-upload-images` (or `sess --no-upload-images` for the browser) to pass image paths through unchanged. Clipboard image pixels, folders, mixed prose-and-path pastes, and plain unmarked drops are not automatically uploaded. See [file transfer](docs/file-transfer.md) for details and compatibility limits.
+
 ## Session browser
 
 ![Session browser connected to a test VM](docs/assets/session-browser.png)
@@ -179,7 +199,7 @@ The browser refreshes asynchronously, shows host context and client counts, and 
 | `?` | Keyboard help |
 | `q`, `Esc` | Quit or cancel the current form |
 
-The terminal is handed directly to SSH while attached; sess does not wrap the shell in another TUI. `NO_COLOR` is supported. Start attachments from an ordinary laptop terminal, rather than nesting persistent terminals across SSH.
+While attached, a small local PTY bridge forwards SSH output unchanged and handles pasted image paths. sess does not draw another TUI around the shell. `NO_COLOR` is supported. Start attachments from an ordinary laptop terminal, rather than nesting persistent terminals across SSH.
 
 ## Under the hood
 

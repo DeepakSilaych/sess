@@ -17,7 +17,7 @@
 </head>
 <body><main>
 <nav><a class="brand" href="#">sess<span style="color:var(--accent)">_</span></a><a href="https://github.com/DeepakSilaych/sess">Source &amp; installation ↗</a></nav>
-<header><div class="eyebrow">Powered by zmx</div><h1>A persistent<br>SSH terminal.</h1><p class="intro">Your work stays on the VM. Name a terminal, disconnect, and come back to the same running shell.</p><p class="note"><a href="https://github.com/DeepakSilaych/sess/releases/tag/v0.6.0">Download v0.6.0</a> · macOS &amp; Linux · ARM64 &amp; AMD64</p></header>
+<header><div class="eyebrow">Powered by zmx</div><h1>A persistent<br>SSH terminal.</h1><p class="intro">Your work stays on the VM. Name a terminal, disconnect, and come back to the same running shell.</p><p class="note"><a href="https://github.com/DeepakSilaych/sess/releases/tag/v0.7.0">Download v0.7.0</a> · macOS &amp; Linux · ARM64 &amp; AMD64</p></header>
 <div class="terminal"><div class="terminal-head">YOUR LAPTOP → DEV VM</div><pre><span class="prompt">$</span> sess init dev
 <span class="prompt">$</span> sess set --host dev
 <span class="prompt">$</span> sess new work
@@ -42,6 +42,7 @@ npx sess-cli
 
 # Or install a permanent command
 npm install -g sess-cli</code></pre><p>macOS and Linux, ARM64 and AMD64. The npm launcher verifies and caches the official release binary on first run.</p></section>
+<section><h2>Bring images to your VM.</h2><p>Drop local images into an attached prompt using bracketed paste, or run <code>sess upload screenshot.png</code> and paste the remote path. Files transfer over SSH.</p><a href="https://github.com/DeepakSilaych/sess/blob/main/docs/file-transfer.md">File transfer and terminal compatibility ↗</a></section>
 <section><h2>SSH connects. zmx persists.</h2><p>sess uses system SSH and installs a small helper on the VM. Each persistent terminal lives under zmx, separately from its SSH connection. No extra network port or laptop background service is needed.</p><p>Live sessions depend on the VM and backend staying alive. A VM reboot ends its processes; persistence is not a backup or automatic job recovery.</p><a href="https://github.com/DeepakSilaych/sess/blob/main/docs/user-guide.md">Read the full user guide ↗</a></section>
-<footer>sess v0.6.0 · macOS &amp; Linux · <a href="https://github.com/DeepakSilaych/sess/blob/main/LICENSE">MIT license</a> · <a href="https://github.com/DeepakSilaych/sess/blob/main/CHANGELOG.md">Changelog</a></footer>
+<footer>sess v0.7.0 · macOS &amp; Linux · <a href="https://github.com/DeepakSilaych/sess/blob/main/LICENSE">MIT license</a> · <a href="https://github.com/DeepakSilaych/sess/blob/main/CHANGELOG.md">Changelog</a></footer>
 </main></body></html>

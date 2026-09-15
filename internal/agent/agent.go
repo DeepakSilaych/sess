@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/DeepakSilaych/sess/internal/api"
 	"github.com/DeepakSilaych/sess/internal/backend"
+	"github.com/DeepakSilaych/sess/internal/transfer"
 	"os"
 	"os/signal"
 	"syscall"
@@ -25,7 +26,7 @@ func Run(args []string) int {
 		}
 		return 0
 	}
-	if len(args) != 2 || (args[0] != "rpc" && args[0] != "attach") {
+	if len(args) != 2 || (args[0] != "rpc" && args[0] != "attach" && args[0] != "upload") {
 		fmt.Fprintln(os.Stderr, "sess remote helper; use sess on your laptop (or sess detach here)")
 		return 2
 	}
@@ -37,6 +38,35 @@ func Run(args []string) int {
 	res := api.Response{Protocol: api.Protocol, Version: api.Version}
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGHUP, syscall.SIGTERM)
 	defer cancel()
+	if args[0] == "upload" {
+		uploadCtx, stop := context.WithTimeout(ctx, 70*time.Second)
+		defer stop()
+		done := make(chan struct{})
+		defer close(done)
+		go func() {
+			select {
+			case <-uploadCtx.Done():
+				os.Stdin.Close()
+			case <-done:
+			}
+		}()
+
+		home, err := os.UserHomeDir()
+		if err == nil && r.Action != "upload" {
+			err = fmt.Errorf("invalid upload request")
+		}
+		if err == nil {
+			res.Path, err = transfer.Receive(home, r.FileName, r.Size, r.SHA256, os.Stdin)
+		}
+		if err != nil {
+			res.Error = &api.Error{Code: "upload", Message: err.Error()}
+		}
+		if json.NewEncoder(os.Stdout).Encode(res) != nil {
+			return 40
+		}
+		return 0
+	}
+
 	if args[0] == "rpc" {
 		var stop context.CancelFunc
 		ctx, stop = context.WithTimeout(ctx, 15*time.Second)

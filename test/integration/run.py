@@ -5,6 +5,7 @@ Requires Docker, OpenSSH, Python 3, and `make build`. No user SSH config,
 keys, remote hosts or zmx sessions are modified. Container is removed on exit.
 """
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -113,6 +114,59 @@ def main():
             assert json.loads(run('ls','-h','alternate','--json').stdout)['sessions'][0]['id']==first['id']
             assert json.loads((d/'config.json').read_text())['host']=='vm'
             print('PASS setup, aliases, host overrides, duplicate and missing names',flush=True)
+
+            image = d / "test image's screenshot.png"
+            image.write_bytes((ROOT/'docs/assets/session-browser.png').read_bytes())
+            expected_hash = hashlib.sha256(image.read_bytes()).hexdigest()
+            uploaded = run('upload',str(image),'-h','alternate').stdout.strip()
+            assert ssh('sha256sum '+shlex.quote(uploaded)).split()[0] == expected_hash
+            assert ssh('stat -c %a '+shlex.quote(uploaded)).strip() == '600'
+            again = run('upload',str(image)).stdout.strip()
+            assert again != uploaded, 'upload overwrote existing file'
+            run('upload',str(d),ok=False)
+            print('PASS SSH upload, checksums, private permissions, collision isolation and host override',flush=True)
+
+            t=terminal('a','api');t.expect(b'root@');t.output=b''
+            t.send(b'set -- ')
+            payload = ('\x1b[200~'+shlex.quote(str(image))+' '+shlex.quote(str(image))+'\x1b[201~').encode()
+            for i in range(0,len(payload),3): t.send(payload[i:i+3])
+            t.expect(b'/root/.local/share/sess/uploads/',timeout=30)
+            t.send(b'\r');t.read(.3)
+            t.send(b'printf "%s\\n" "$@" > /tmp/upload-paths\r');t.read(.3)
+            paths=ssh('cat /tmp/upload-paths').splitlines()
+            assert len(paths)==2 and paths[0]!=paths[1], paths
+            for dest in paths:
+                assert ssh('sha256sum '+shlex.quote(dest)).split()[0]==expected_hash
+            fcntl.ioctl(t.fd,termios.TIOCSWINSZ,struct.pack('HHHH',24,90,0,0))
+            t.send(b'stty size > /tmp/terminal-size\r');t.read(.3)
+            assert ssh('cat /tmp/terminal-size').strip()=='24 90'
+            t.send(b'\x1c');assert t.finish()==0
+            print('PASS fragmented bracketed image paste, quoted paths, multiple images, resize and detach',flush=True)
+
+            t=terminal('a','api','--no-upload-images');t.expect(b'root@');t.output=b''
+            t.send(b'set -- '+payload+b'\r');t.read(.3)
+            t.send(b'printf "%s\\n" "$@" > /tmp/local-paths\r');t.read(.3)
+            assert ssh('cat /tmp/local-paths').splitlines()==[str(image),str(image)]
+            t.send(b'\x1c');assert t.finish()==0
+            print('PASS upload opt-out preserves original paste',flush=True)
+
+            slow_wrapper=d/'slow-ssh'
+            marker=d/'upload-started'
+            slow_wrapper.write_text('#!/bin/sh\ncase "$*" in *" upload "*) touch '+shlex.quote(str(marker))+'; exec sleep 60;; esac\nexec '+shlex.quote(str(wrapper))+' "$@"\n')
+            slow_wrapper.chmod(0o700)
+            slow_env={**env,'SESS_SSH':str(slow_wrapper)}
+            t=Terminal(['a','api'],slow_env);terminals.append(t);t.expect(b'root@');t.output=b''
+            t.send(payload)
+            deadline=time.monotonic()+5
+            while not marker.exists():
+                assert time.monotonic()<deadline, 'upload did not start'
+                t.read(.1)
+            t.send(b'\x03');t.expect(b'image upload failed',timeout=5)
+            t.send(b'printf "CANCEL_RECOVERED\\n"\r');t.expect(b'\rCANCEL_RECOVERED\r\n')
+            t.send(b'\x1c');assert t.finish()==0
+            print('PASS Ctrl+C cancels upload and restores ordinary terminal input',flush=True)
+
+
 
             t=terminal('a','api');t.expect(b'root@')
             t.send(b'export SESS_CHECK=kept; cd /tmp; printf "SHELL_READY\\n"\r')

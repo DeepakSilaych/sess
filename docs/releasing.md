@@ -41,22 +41,22 @@ Extract and smoke-test the executable for your own platform with `sess version` 
 
 ## Tag and publish
 
-For a release whose code reports `0.6.0`, the tag is `v0.6.0`. Use the actual version for a future release, and check that it is not already published.
+For a release whose code reports `0.7.0`, the tag is `v0.7.0`. Use the actual version for a future release, and check that it is not already published.
 
 ```sh
-git tag -a v0.6.0 -m "sess v0.6.0 — persistent SSH terminals powered by zmx"
+git tag -a v0.7.0 -m "sess v0.7.0 — persistent SSH terminals powered by zmx"
 git push origin main
-git push origin v0.6.0
+git push origin v0.7.0
 
-gh release create v0.6.0 --verify-tag --draft \
-  --title "sess v0.6.0" --notes-file /path/to/release-notes.md \
+gh release create v0.7.0 --verify-tag --draft \
+  --title "sess v0.7.0" --notes-file /path/to/release-notes.md \
   dist/sess-*.tar.gz dist/SHA256SUMS
 ```
 
 Inspect the draft's tag, notes, platform filenames, and uploaded checksums, then publish:
 
 ```sh
-gh release edit v0.6.0 --draft=false --latest
+gh release edit v0.7.0 --draft=false --latest
 ```
 
 Do not move an already-published tag to another commit. Publish a new patch version for corrections to a release.

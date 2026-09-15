@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-const Version = "0.6.0"
+const Version = "0.7.0"
 const Protocol = 1
 const ZMXVersion = "0.8.1"
 
@@ -24,12 +24,16 @@ type Session struct {
 	Status    string    `json:"status"`
 }
 type Request struct {
+	FileName string `json:"file_name,omitempty"`
+	Size     int64  `json:"size,omitempty"`
+	SHA256   string `json:"sha256,omitempty"`
 	Protocol int    `json:"protocol"`
 	Action   string `json:"action"`
 	Name     string `json:"name,omitempty"`
 	ID       string `json:"id,omitempty"`
 }
 type Response struct {
+	Path     string    `json:"path,omitempty"`
 	Protocol int       `json:"protocol"`
 	Version  string    `json:"version"`
 	Backend  string    `json:"backend,omitempty"`
